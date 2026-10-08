@@ -229,3 +229,44 @@ def test_unicode_invite_does_not_crash_or_bypass(config, store, telegram, snapsh
     ]
     assert BotService(config, store, telegram, factory_with(snapshot)).cycle(now)
     assert store.load()["users"]["111"]["onboarding"]
+
+
+def test_fifteen_students_register_independently_and_sixteenth_is_rejected(
+    config, store, telegram, snapshot, now
+):
+    config = replace(config, max_users=15)
+
+    class ClassroomCanvas:
+        def __init__(self, base, token):
+            self.index = int(token.rsplit("_", 1)[1])
+
+        def profile(self):
+            return 5000 + self.index
+
+        def snapshot(self, previous):
+            task = replace(snapshot.assignments[0], submitted=bool(self.index % 2))
+            return Snapshot(snapshot.courses, [task], set())
+
+    telegram.updates = []
+    for i in range(15):
+        uid = 1000 + i
+        telegram.updates.extend(
+            [
+                demo_update(i * 2 + 1, uid, "/start"),
+                demo_update(i * 2 + 2, uid, f"SYNTHETIC_STUDENT_TOKEN_{i:02d}"),
+            ]
+        )
+    telegram.updates.append(demo_update(31, 2000, "/start"))
+    for i in range(15):
+        telegram.updates.append(demo_update(32 + i, 1000 + i, "/resumen"))
+    assert BotService(config, store, telegram, ClassroomCanvas).cycle(now)
+    saved = store.load()
+    assert len(saved["users"]) == 15
+    assert "2000" not in saved["users"]
+    assert len({user["token"] for user in saved["users"].values()}) == 15
+    assert len({user["canvas_user_id"] for user in saved["users"].values()}) == 15
+    assert all(user["initialized"] for user in saved["users"].values())
+    for i in range(15):
+        summary = next(text for uid, text in telegram.sent if uid == 1000 + i and "RESUMEN" in text)
+        assert f"Total pendientes: {0 if i % 2 else 1}" in summary
+    assert any("límite" in text for uid, text in telegram.sent if uid == 2000)

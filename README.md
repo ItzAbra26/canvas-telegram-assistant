@@ -276,7 +276,7 @@ Un 404 no permite distinguir con certeza una eliminación de una tarea que ya no
 
 Los tokens de alumno caducan según la configuración y políticas de Canvas/centro. La guía vigente indica caducidad de los tokens de estudiante; comprueba la fecha que muestra tu instancia. [Gestión oficial de tokens](https://community.instructure.com/en/kb/articles/662901-unknown).
 
-El límite inicial es `MAX_USERS=30`. Ajusta ese valor en `.env` y en el workflow si lo necesitas. Más cuentas y tareas implican más consultas, commits y tiempo; el workflow tiene un máximo de 10 minutos. El bot envía como máximo 80 mensajes por ejecución y deja el resto en cola. El estado remoto se limita a 900 KB para evitar la limitación de lectura de la API de contenidos; para una clase grande o uso prolongado conviene migrar a una base de datos.
+El límite inicial es `MAX_USERS=15`. Ajusta ese valor en `.env` y en el workflow si lo necesitas. Más cuentas y tareas implican más consultas, commits y tiempo; el workflow tiene un máximo de 10 minutos. El bot envía como máximo 80 mensajes por ejecución y deja el resto en cola. El estado remoto se limita a 900 KB para evitar la limitación de lectura de la API de contenidos; para una clase grande o uso prolongado conviene migrar a una base de datos.
 
 ## 13. Seguridad, bajas y copias
 

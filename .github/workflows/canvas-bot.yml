@@ -32,7 +32,7 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
       STATE_BRANCH: bot-state
       TIMEZONE: Europe/Madrid
-      MAX_USERS: '30'
+      MAX_USERS: '15'
       INITIAL_NOTIFICATIONS: 'false'
     steps:
       - name: Descargar código

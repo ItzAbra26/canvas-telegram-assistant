@@ -22,7 +22,7 @@ class Config:
     timezone: str = "Europe/Madrid"
     allowed_users: frozenset[int] = frozenset()
     invite_code: str = field(default="", repr=False)
-    max_users: int = 30
+    max_users: int = 15
     recent_days: int = 7
     initial_notifications: bool = False
     github_token: str = field(default="", repr=False)
@@ -66,7 +66,7 @@ class Config:
             allowed = frozenset(
                 int(x) for x in os.getenv("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if x.strip()
             )
-            max_users = int(os.getenv("MAX_USERS", "30"))
+            max_users = int(os.getenv("MAX_USERS", "15"))
             recent = int(os.getenv("RECENT_DAYS", "7"))
         except (ValueError, KeyError) as exc:
             raise BotError("Clave, zona horaria o límites de configuración incorrectos.") from exc

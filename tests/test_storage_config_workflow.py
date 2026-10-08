@@ -113,6 +113,7 @@ def test_environment_config_and_redacted_repr(monkeypatch, config):
     set_env(monkeypatch, config)
     result = Config.from_env()
     assert result.timezone == "Europe/Madrid" and result.test_mode
+    assert result.max_users == 15
     assert config.encryption_key not in repr(result) and config.telegram_token not in repr(result)
 
 
@@ -154,6 +155,7 @@ def test_workflow_structure_and_persistence():
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     job = workflow["jobs"]["check"]
     assert job["env"]["STORAGE_BACKEND"] == "github"
+    assert job["env"]["MAX_USERS"] == "15"
     assert job["env"]["STATE_ENCRYPTION_KEY"] == "${{ secrets.STATE_ENCRYPTION_KEY }}"
     assert job["env"]["GITHUB_TOKEN"] == "${{ github.token }}"
     assert any(step.get("run") == "python -m src.main --once" for step in job["steps"])
