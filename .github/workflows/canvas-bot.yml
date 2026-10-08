@@ -1,0 +1,52 @@
+name: Canvas Telegram Bot
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: canvas-telegram-bot-state
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # Nunca ejecutar una revisión con credenciales desde una rama alternativa.
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONUNBUFFERED: '1'
+      PYTHONUTF8: '1'
+      CANVAS_BASE_URL: ${{ secrets.CANVAS_BASE_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+      CLASS_INVITE_CODE: ${{ secrets.CLASS_INVITE_CODE }}
+      ALLOWED_TELEGRAM_USER_IDS: ${{ secrets.ALLOWED_TELEGRAM_USER_IDS }}
+      TEST_MODE: 'true'
+      STORAGE_BACKEND: github
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      STATE_BRANCH: bot-state
+      TIMEZONE: Europe/Madrid
+      MAX_USERS: '30'
+      INITIAL_NOTIFICATIONS: 'false'
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements.txt
+      - name: Revisar Canvas, atender comandos y persistir estado cifrado
+        run: python -m src.main --once
+        # El programa guarda en GitHub ANTES/DESPUÉS de cada envío y tras cada usuario.
+        # No depende de un commit final ni de una cache que pueda caducar.
