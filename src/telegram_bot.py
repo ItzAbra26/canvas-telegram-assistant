@@ -109,6 +109,18 @@ class TelegramBot:
             },
         )
 
+    def identity(self) -> str:
+        """Comprueba el token y devuelve únicamente el nombre público del bot."""
+        result = self._call("getMe", {})
+        if (
+            not isinstance(result, dict)
+            or result.get("is_bot") is not True
+            or not isinstance(result.get("username"), str)
+            or not result["username"]
+        ):
+            raise APIError("Telegram")
+        return result["username"]
+
     def webhook_info(self) -> dict[str, Any]:
         result = self._call("getWebhookInfo", {})
         if not isinstance(result, dict):

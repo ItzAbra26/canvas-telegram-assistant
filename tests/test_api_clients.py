@@ -192,3 +192,19 @@ def test_delete_failure_and_webhook():
     assert not bot.delete_message(111, 9)
     assert bot.webhook_info()["url"]
     bot.remove_webhook()
+
+
+@responses.activate
+def test_telegram_identity_returns_only_public_username():
+    responses.post(
+        TG + "/getMe", json={"ok": True, "result": {"is_bot": True, "username": "class_bot"}}
+    )
+    assert TelegramBot("test-bot-token").identity() == "class_bot"
+
+
+@responses.activate
+@pytest.mark.parametrize("result", [{}, {"is_bot": False, "username": "user"}, []])
+def test_telegram_incomplete_identity_is_rejected(result):
+    responses.post(TG + "/getMe", json={"ok": True, "result": result})
+    with pytest.raises(APIError):
+        TelegramBot("test-bot-token").identity()

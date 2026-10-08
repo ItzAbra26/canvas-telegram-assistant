@@ -38,6 +38,9 @@ class DemoTelegram:
     def register_commands(self) -> None:
         pass
 
+    def identity(self) -> str:
+        return "demo_classroom_bot"
+
 
 def demo_update(update_id: int, uid: int, text: str) -> dict[str, Any]:
     return {

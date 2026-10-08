@@ -85,6 +85,7 @@ def main() -> int:
             return 0
         if telegram.webhook_info().get("url"):
             raise BotError("Hay un webhook activo. Para usar este bot ejecuta --remove-webhook.")
+        logging.info("Bot verificado: https://t.me/%s", telegram.identity())
         config.state_file.parent.mkdir(parents=True, exist_ok=True)
         # Evita procesos locales simultáneos. GitHub añade concurrency y SHA remoto.
         with FileLock(str(config.state_file) + ".lock", timeout=0):
