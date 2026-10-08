@@ -5,7 +5,7 @@ Comprobación realizada el 8 de octubre de 2026, con Python 3.14.2 en Windows y 
 | Comprobación | Resultado |
 | --- | --- |
 | Instalación de dependencias del bot y desarrollo | Correcta |
-| `python -m pytest` | 108 pruebas correctas |
+| `python -m pytest` | 111 pruebas correctas |
 | Cobertura de líneas medida por pytest-cov | 90 % |
 | `python -m ruff check .` | Correcto |
 | `python -m ruff format --check .` | Correcto |
@@ -18,6 +18,7 @@ Comprobación realizada el 8 de octubre de 2026, con Python 3.14.2 en Windows y 
 | Arranque real, autenticación Telegram y menú de comandos | [Ejecución correcta](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/runs/37756269567) |
 | Persistencia real de GitHub | Rama `bot-state`, archivo `state.enc`; descifrado comprobado sin imprimir datos |
 | Secrets obligatorios | Los tres configurados y sus nombres comprobados; sin credenciales en el código |
+| Capacidad para los 15 alumnos | Persistencia simulada de 1.800 tareas; más de 5 MB de JSON antes de comprimir |
 
 Las pruebas cubren el registro privado con token, 15 alumnos con cuentas y entregas independientes, rechazo del alumno 16, renovación y baja, rechazo de grupos/reenviados, invitación/lista de clase, fechas de Madrid y horario de verano, paginación, HTML, respuestas incompletas, fallback de entregas, cambios, nuevas tareas, los cuatro umbrales, borrados confirmados, persistencia cifrada, conflictos de escritura, rate limits e interrupciones durante envíos.
 

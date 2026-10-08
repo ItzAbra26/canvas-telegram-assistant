@@ -1,4 +1,5 @@
 import base64
+import gzip
 import json
 import os
 import tempfile
@@ -73,12 +74,18 @@ class EncryptedCodec:
     def encode(self, state: State) -> bytes:
         validate_state(state)
         payload = json.dumps(state, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-        return self.cipher.encrypt(payload.encode("utf-8"))
+        # Los mismos enunciados se repiten entre alumnos: comprimir antes de cifrar
+        # permite guardar una clase completa sin superar el límite de GitHub.
+        return self.cipher.encrypt(gzip.compress(payload.encode("utf-8"), mtime=0))
 
     def decode(self, content: bytes) -> State:
         try:
-            result = json.loads(self.cipher.decrypt(content).decode("utf-8"))
-        except (InvalidToken, ValueError, UnicodeDecodeError):
+            payload = self.cipher.decrypt(content)
+            # Compatibilidad con los checkpoints anteriores de JSON sin comprimir.
+            if payload.startswith(b"\x1f\x8b"):
+                payload = gzip.decompress(payload)
+            result = json.loads(payload.decode("utf-8"))
+        except (InvalidToken, ValueError, UnicodeDecodeError, OSError, EOFError):
             raise StorageError(
                 "No se puede descifrar el estado. No cambies la clave ni borres el archivo."
             ) from None

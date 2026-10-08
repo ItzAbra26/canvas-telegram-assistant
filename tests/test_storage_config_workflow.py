@@ -9,7 +9,7 @@ from cryptography.fernet import Fernet
 
 from src.config import Config
 from src.errors import BotError, StorageError
-from src.storage import GitHubStore, LocalStore, empty_state, validate_state
+from src.storage import EncryptedCodec, GitHubStore, LocalStore, empty_state, validate_state
 
 ROOT = "https://api.github.com/repos/example/classbot"
 
@@ -29,6 +29,44 @@ def test_corrupt_file_preserved(store, config):
     with pytest.raises(StorageError):
         store.load()
     assert config.state_file.read_bytes() == b"broken"
+
+
+def test_previous_uncompressed_checkpoint_still_loads(config, state):
+    previous = Fernet(config.encryption_key.encode()).encrypt(json.dumps(state).encode())
+    assert EncryptedCodec(config.encryption_key).decode(previous) == state
+
+
+def test_invalid_authenticated_compressed_checkpoint_is_rejected(config):
+    invalid = Fernet(config.encryption_key.encode()).encrypt(b"\x1f\x8btruncated")
+    with pytest.raises(StorageError):
+        EncryptedCodec(config.encryption_key).decode(invalid)
+
+
+@responses.activate
+def test_persistence_with_15_students_and_1800_long_assignments(config, task):
+    state = empty_state()
+    for uid in range(1, 16):
+        tasks = {}
+        for aid in range(1, 121):
+            data = task.to_dict()
+            data.update(id=aid, description="Instrucciones de la práctica y criterios. " * 100)
+            tasks[f"10:{aid}"] = {"data": data, "reminders": {}, "revision": 1}
+        state["users"][str(uid)] = {
+            "onboarding": False,
+            "token": f"SIMULATED_CLASS_TOKEN_{uid}",
+            "canvas_user_id": uid,
+            "tasks": tasks,
+        }
+    assert len(json.dumps(state).encode()) > 5_000_000
+    responses.get(ROOT + "/git/ref/heads/bot-state", json={"object": {"sha": "branch"}})
+    responses.get(ROOT + "/contents/state.enc", status=404)
+    responses.put(ROOT + "/contents/state.enc", json={"content": {"sha": "saved"}})
+    store = GitHubStore("example/classbot", "fake", config.encryption_key)
+    store.load()
+    store.save(state)
+    encrypted = base64.b64decode(json.loads(responses.calls[-1].request.body)["content"])
+    assert len(encrypted) < 900_000
+    assert store.codec.decode(encrypted) == state
 
 
 def test_invalid_schema_does_not_save(store, state):
