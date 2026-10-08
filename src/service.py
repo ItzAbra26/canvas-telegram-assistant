@@ -157,11 +157,19 @@ class BotService:
             try:
                 canvas_id = self.canvas_factory(self.config.canvas_base_url, text).profile()
             except APIError as exc:
-                reason = (
-                    "Canvas ha rechazado el token (caducado, revocado o de otro dominio)."
-                    if exc.status in {401, 403}
-                    else "Canvas no está disponible o no ha devuelto un perfil válido."
-                )
+                if exc.status == 401:
+                    reason = (
+                        "Canvas no ha aceptado este token (HTTP 401). Copia el valor completo "
+                        "que aparece al crearlo, no su nombre ni un valor oculto."
+                    )
+                elif exc.status == 403:
+                    reason = (
+                        "Canvas ha denegado el acceso (HTTP 403). Puede faltar permiso del "
+                        "centro o existir un bloqueo del servidor; no significa que el token "
+                        "esté caducado."
+                    )
+                else:
+                    reason = "Canvas no está disponible o no ha devuelto un perfil válido."
                 enqueue(
                     state,
                     prefix,

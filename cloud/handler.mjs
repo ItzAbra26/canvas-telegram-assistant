@@ -54,6 +54,21 @@ export function createHandler(db, messages, cleanHTML, fetcher = fetch, backgrou
           const info = await telegram.call('getWebhookInfo', {});
           return Response.json({ webhook_active: info.url === config.webhook_url, pending_updates: info.pending_update_count, last_error_date: info.last_error_date || null });
         }
+        if (body.action === 'canvas-health') {
+          const store = db.makeSmokeStore ? await db.makeSmokeStore(config, config.encryption_key) : new StateStore(db, config.encryption_key);
+          const { state } = await store.load();
+          const user = Object.values(state.users).find(value => value.token);
+          if (!user) return Response.json({ checked: false });
+          const client = new InitialCanvas(config.canvas_base_url, user.token, cleanHTML, fetcher);
+          const checks = [];
+          for (const path of ['users/self/profile', 'users/self']) {
+            try {
+              const { body: profile } = await client.get(config.canvas_base_url + '/api/v1/' + path);
+              checks.push({ endpoint: path, status: 200, valid_user: Number.isSafeInteger(profile?.id) && profile.id > 0 });
+            } catch (error) { checks.push({ endpoint: path, status: error.status || 0, reason: error.reason || 'network' }); }
+          }
+          return Response.json({ checked: true, checks });
+        }
         if (body.action === 'smoke' || body.action === 'probe') {
           const store = db.makeSmokeStore ? await db.makeSmokeStore(config, config.encryption_key) : new StateStore(db, config.encryption_key);
           const { state } = await store.load();

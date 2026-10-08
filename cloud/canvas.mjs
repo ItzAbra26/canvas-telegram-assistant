@@ -1,5 +1,5 @@
 export class CanvasError extends Error {
-  constructor(status = 0) { super('Canvas unavailable'); this.status = status; }
+  constructor(status = 0, reason = 'network') { super('Canvas unavailable'); this.status = status; this.reason = reason; }
 }
 export class InitialCanvas {
   constructor(base, token, cleanHTML, fetcher = fetch) {
@@ -9,9 +9,23 @@ export class InitialCanvas {
     const value = new URL(url);
     if (value.origin !== new URL(this.base).origin || value.protocol !== 'https:' || value.username || value.password || !value.pathname.startsWith('/api/v1/')) throw new CanvasError();
     let response;
-    try { response = await this.fetcher(value.href, { headers: { Authorization: 'Bearer ' + this.token }, redirect: 'manual', signal: AbortSignal.timeout(10000) }); }
+    try { response = await this.fetcher(value.href, { headers: { Authorization: 'Bearer ' + this.token, Accept: 'application/json', 'User-Agent': 'CanvasTelegramAssistant/1.0 (+https://github.com/ItzAbra26/canvas-telegram-assistant)' }, redirect: 'manual', signal: AbortSignal.timeout(10000) }); }
     catch { throw new CanvasError(); }
-    if (response.status !== 200) throw new CanvasError(response.status);
+    if (response.status !== 200) {
+      // Retain only an enumerated diagnosis, never provider text or credentials.
+      let reason = response.status === 401 ? 'unauthorized' : response.status === 403 ? 'forbidden' : 'http';
+      if (response.headers.get('cf-mitigated') === 'challenge') reason = 'challenge';
+      else if (response.headers.get('content-type')?.includes('text/html')) reason = 'html-response';
+      else {
+        try {
+          const error = await response.json();
+          const description = JSON.stringify(error).toLowerCase();
+          if (description.includes('insufficient_scope') || description.includes('insufficient scope')) reason = 'scope';
+          else if (description.includes('invalid access token') || description.includes('invalid_token')) reason = 'invalid-token';
+        } catch { /* HTTP status remains useful for an incomplete response. */ }
+      }
+      throw new CanvasError(response.status, reason);
+    }
     let body;
     try { body = await response.json(); } catch { throw new CanvasError(); }
     return { body, links: response.headers.get('link') || '' };

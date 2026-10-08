@@ -5,8 +5,8 @@ Comprobado el 8 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/c
 | Comprobación | Resultado |
 | --- | --- |
 | Dependencias Python y Node.js | Instaladas y verificadas |
-| Python local, 3.14.2 | 125 tests correctos; cobertura 90 % |
-| Webhook, Node.js 24 | 27 tests correctos |
+| Python local, 3.14.2 | 127 tests correctos; cobertura 90 % |
+| Webhook, Node.js 24 | 31 tests correctos |
 | Ruff: lint y formato | Correctos |
 | pip check | Sin incompatibilidades |
 | npm audit --audit-level=high | 0 vulnerabilidades |
@@ -32,3 +32,5 @@ Además de los mocks, se han consultado tareas de una cuenta real de MEDAC desde
 La revisión se programa una vez por hora, al minuto 17; los cron de GitHub pueden retrasarse. Los comandos usan la última sincronización y se atienden directamente desde el webhook. Los tiempos medidos corresponden a pruebas concretas, no a una garantía para cualquier red o volumen. La práctica conserva el modo de prueba con tokens manuales solicitado; OAuth institucional no está implementado.
 
 Para repetir las pruebas locales, sigue el README. python scripts/cloud_admin.py status comprueba el webhook; probe comprueba el resumen con envío deduplicado; backup guarda una copia cifrada ignorada por Git. No se han generado tareas, cambios de notas ni entregas en Canvas para realizar las comprobaciones.
+
+Se corrigió además el registro de alumnos: una cuenta válida obtenía 200 desde la conexión local y 403 con HTML desde Cloudflare. Tras enviar `Accept: application/json` y un `User-Agent` propio, ambos endpoints oficiales (`users/self/profile` y `users/self`) devolvieron 200 desde el servicio desplegado. Los avisos distinguen 401, 403 y bloqueo del servidor; no atribuyen automáticamente un 403 a caducidad. La comprobación autenticada `canvas-health` no devuelve información personal ni credenciales. Las pruebas nuevas verifican las cabeceras, el rechazo HTML, el reintento del registro y la privacidad del diagnóstico.

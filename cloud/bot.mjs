@@ -95,10 +95,12 @@ export class ImmediateBot {
     if (update.update_id < (this.config.polling_cutoff || 0) || previous.webhook_updates?.[update.update_id]) { await this.dispatch(prefix); return null; }
     const text = typeof message.text === 'string' ? message.text.trim() : '';
     const command = text.startsWith('/') ? text.split(/\s/, 1)[0].split('@', 1)[0].toLowerCase() : '';
-    let deleted = false, profile = null, profileError = null;
+    let deleted = false, profile = null, profileError = { status: 0, reason: 'network' };
     if (allowed && (message.forward_origin || (text && !command))) deleted = await this.telegram.remove(sender.id, message.message_id);
     if (allowed && text && !command && !message.forward_origin && previous.users[uid]?.onboarding && this.config.test_mode && text.length >= 16 && text.length <= 512 && /^[\x21-\x7e]+$/.test(text)) {
-      try { profile = await this.canvasFactory(text).profile(); } catch (error) { profileError = error.status || 0; }
+      try { profile = await this.canvasFactory(text).profile(); } catch (error) {
+        profileError = { status: Number.isSafeInteger(error.status) ? error.status : 0, reason: ['network', 'unauthorized', 'forbidden', 'challenge', 'html-response', 'scope', 'invalid-token', 'http'].includes(error.reason) ? error.reason : 'network' };
+      }
     }
     let connected = null;
     await this.store.change(state => {
@@ -136,7 +138,13 @@ export class ImmediateBot {
         if (!user.onboarding || !this.config.test_mode) { reply('Para conectar o cambiar tu cuenta usa /start. No envíes credenciales fuera del registro.'); return; }
         if (text.length < 16 || text.length > 512 || !/^[\x21-\x7e]+$/.test(text)) { reply('No parece un token. Copia solo el token de Canvas, sin espacios ni contraseña, o usa /cancelar.'); return; }
         if (profile === null) {
-          reply(([401, 403].includes(profileError) ? 'Canvas ha rechazado el token (caducado, revocado o de otro dominio).' : 'Canvas no está disponible o no ha devuelto un perfil válido.') + ' Vuelve a enviar el token para reintentarlo, o /cancelar.');
+          user.registration_error = { ...profileError, at: now };
+          const reason = profileError.status === 401 ? 'Canvas no ha aceptado este token (HTTP 401). Copia el valor completo que aparece al crearlo en medac.instructure.com, no su nombre ni un valor oculto.'
+            : profileError.status === 403 && ['challenge', 'html-response'].includes(profileError.reason) ? 'Canvas ha bloqueado la conexión del servidor (HTTP 403). Esto no confirma que tu token esté caducado.'
+            : profileError.status === 403 ? 'Canvas ha denegado el acceso (HTTP 403). Puede faltar permiso del centro; no significa que el token esté caducado.'
+            : profileError.status === 429 ? 'Canvas está limitando las consultas. Espera un momento antes de reintentarlo.'
+            : 'Canvas no está disponible o no ha devuelto un perfil válido.';
+          reply(reason + ' Vuelve a enviar el token para reintentarlo, o /cancelar.');
           if (!deleted) enqueue(state, prefix + ':delete', sender.id, '⚠️ No pude borrar el mensaje con tu token. Bórralo tú desde Telegram.');
           return;
         }
@@ -144,6 +152,7 @@ export class ImmediateBot {
           forget(state, uid); user = state.users[uid] = { onboarding: false, tasks: {}, courses: [] };
         }
         Object.assign(user, { token: text, canvas_user_id: profile, onboarding: false, disabled: false, sync_error: null, connected_at: now });
+        delete user.registration_error;
         reply('✅ <b>Cuenta conectada</b>\n' + (deleted ? '🔒 He borrado el mensaje que contenía el token.' : '⚠️ No pude borrar el mensaje con tu token: bórralo tú desde Telegram.') + '\nTus tareas y avisos llegarán solo a este chat. Estoy preparando la primera carga; después se actualizarán cada hora.');
         if (!user.initialized) connected = { uid, token: text, connected_at: now };
       } else reply('Envía el token como texto durante /start, o consulta /ayuda.');

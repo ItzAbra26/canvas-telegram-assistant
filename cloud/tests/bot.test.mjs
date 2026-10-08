@@ -231,3 +231,58 @@ test('native fetch is called without a class instance receiver', async () => {
   assert.equal(await new Telegram('SYNTHETIC',strictFetch).send(111,'Hola'),42);
   assert.equal(await new InitialCanvas(config.canvas_base_url,'SYNTHETIC',x=>x,strictFetch).profile(),123);
 });
+
+test('Canvas API requests identify the application and request JSON', async () => {
+  const client = new InitialCanvas(config.canvas_base_url, 'SYNTHETIC_PRIVATE', x => x, async (url, args) => {
+    assert.equal(url, config.canvas_base_url + '/api/v1/users/self/profile');
+    assert.equal(args.headers.Authorization, 'Bearer SYNTHETIC_PRIVATE');
+    assert.equal(args.headers.Accept, 'application/json');
+    assert.match(args.headers['User-Agent'], /^CanvasTelegramAssistant\//);
+    assert.equal(args.redirect, 'manual');
+    return Response.json({ id: 123 });
+  });
+  assert.equal(await client.profile(), 123);
+});
+
+test('Canvas HTML denial is classified without exposing the response body', async () => {
+  const client = new InitialCanvas(config.canvas_base_url, 'SYNTHETIC_PRIVATE', x => x, async () => new Response('<html>PRIVATE_PROVIDER_RESPONSE</html>', { status: 403, headers: { 'Content-Type': 'text/html' } }));
+  await assert.rejects(client.profile(), error => error.status === 403 && error.reason === 'html-response' && !error.message.includes('PRIVATE'));
+});
+
+test('registration separates access denial from authentication failure and safely retries', async () => {
+  for (const [status, reason, expected] of [[403, 'html-response', /conexión del servidor/], [403, 'scope', /Puede faltar permiso/], [401, 'invalid-token', /valor completo/]]) {
+    const { bot, telegram, store } = await setup();
+    await bot.receive(update(1, 111, '/start'));
+    bot.canvasFactory = () => ({ async profile() { throw new CanvasError(status, reason); } });
+    const token = 'SYNTHETIC_NEW_PRIVATE_TOKEN';
+    await bot.receive(update(2, 111, token));
+    assert.match(telegram.sent.at(-1).text, expected);
+    assert.doesNotMatch(telegram.sent.at(-1).text, /\(caducado, revocado|SYNTHETIC/);
+    let user = (await store.load()).state.users['111'];
+    assert.equal(user.token, undefined);
+    assert.equal(user.onboarding, true);
+    assert.equal(user.registration_error.status, status);
+    assert.equal(user.registration_error.reason, reason);
+    bot.canvasFactory = () => ({ async profile() { return 123; } });
+    await bot.receive(update(3, 111, token));
+    user = (await store.load()).state.users['111'];
+    assert.equal(user.registration_error, undefined);
+    assert.equal(user.canvas_user_id, 123);
+    assert.match(telegram.sent.at(-1).text, /Cuenta conectada/);
+  }
+});
+
+test('authenticated Canvas health returns only endpoint status, never student data', async () => {
+  const state = blank();
+  state.users['111'] = { onboarding: false, token: 'SYNTHETIC_PRIVATE', tasks: {}, courses: [] };
+  const db = await new DB().initialize(state);
+  const handler = createHandler(db, messages, x => x, async () => Response.json({ id: 123, name: 'PRIVATE_STUDENT_NAME', email: 'PRIVATE_EMAIL' }));
+  const request = headers => new Request(config.webhook_url, { method: 'POST', headers, body: JSON.stringify({ action: 'canvas-health' }) });
+  assert.equal((await handler(request({}))).status, 401);
+  const response = await handler(request({ 'X-Canvas-State-Key': stateKey }));
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.checks.length, 2);
+  assert.ok(result.checks.every(check => check.status === 200 && check.valid_user));
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE|111|123/);
+});

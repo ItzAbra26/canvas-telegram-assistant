@@ -117,6 +117,23 @@ def test_bad_token_not_persisted(config, store, telegram, snapshot, now):
     assert telegram.deleted == [(111, 2)]
 
 
+@pytest.mark.parametrize("status", [401, 403])
+def test_registration_errors_distinguish_auth_and_permission(
+    config, store, telegram, snapshot, now, status
+):
+    telegram.updates = [
+        demo_update(1, 111, "/start"),
+        demo_update(2, 111, "SYNTHETIC_PRIVATE_TEST_TOKEN"),
+    ]
+    factory = factory_with(snapshot, profile_error=APIError("Canvas", status))
+    BotService(config, store, telegram, factory).cycle(now)
+    text = telegram.sent[-1][1]
+    assert f"HTTP {status}" in text
+    assert "token" not in store.load()["users"]["111"]
+    assert "SYNTHETIC_PRIVATE" not in text
+    assert "valor completo" in text if status == 401 else "no significa" in text
+
+
 def test_failed_delete_warns_but_connects(config, store, telegram, snapshot, now):
     telegram.delete_message = lambda chat, message: False
     telegram.updates = [

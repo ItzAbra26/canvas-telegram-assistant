@@ -313,8 +313,8 @@ Un 404 no permite distinguir con certeza una eliminación de una tarea que ya no
 | Problema | Qué hacer |
 | --- | --- |
 | Falta una variable al iniciar | Revisa `.env` o los cinco Secrets obligatorios |
-| 401 de Canvas | Token caducado/revocado; el bot pausa esa cuenta y pide renovar con `/start` |
-| 403 de Canvas | Revisa permisos con el administrador; el bot conserva los datos anteriores |
+| 401 de Canvas | Canvas no acepta la credencial: copia el valor completo del token del dominio correcto; también puede estar caducado/revocado. Una cuenta ya conectada se pausa y conserva sus datos |
+| 403 de Canvas | Puede ser un permiso o un bloqueo de la conexión del servidor, sin implicar caducidad. El cliente del webhook envía `Accept: application/json` y un `User-Agent` propio; conserva los datos anteriores |
 | 429 / caída temporal de Canvas | Lecturas con reintentos limitados; conserva el estado y vuelve en otra revisión |
 | Canvas entrega datos incompletos | Se rechaza la sincronización, sin borrar tareas |
 | Telegram no responde enseguida | Ejecuta `cloud_admin.py status`; comprueba el webhook, cuotas y disponibilidad de Cloudflare |
@@ -330,6 +330,8 @@ Un 404 no permite distinguir con certeza una eliminación de una tarea que ya no
 | Envíos inciertos | Revisa `/estado`, comprueba Telegram y usa `/resumen`; no se reenvían automáticamente |
 
 Los tokens de alumno caducan según la configuración y políticas de Canvas/centro. La guía vigente indica caducidad de los tokens de estudiante; comprueba la fecha que muestra tu instancia. [Gestión oficial de tokens](https://community.instructure.com/en/kb/articles/662901-unknown).
+
+Si un token recién creado falla solo al registrarlo, el administrador puede ejecutar `python scripts/cloud_admin.py canvas-health`. Consulta dos endpoints oficiales con una cuenta ya conectada y muestra únicamente códigos HTTP y categorías de error, sin nombres, IDs ni tokens. En MEDAC se verificó un 403 con HTML desde el webhook que desapareció al añadir las cabeceras JSON e identificación de la aplicación; no era una caducidad del token. [API oficial de usuarios y perfil](https://developerdocs.instructure.com/services/canvas/resources/users).
 
 El límite inicial es `MAX_USERS=15`; para esta práctica conserva ese valor en `.env`, el workflow y la configuración cifrada. El comprobador tiene un máximo de 10 minutos y envía como máximo 80 mensajes por revisión, dejando el resto en cola. Cada partición cifrada tiene un límite preventivo de 1,8 MB frente al máximo de 2 MB por fila de D1. Si se supera, el bot detiene las escrituras y conserva el estado anterior. Los tests incluyen 15 cuentas y enunciados extensos, pero no garantizan capacidad ilimitada. La primera carga del webhook también está sujeta al tiempo de segundo plano de Workers; si no termina, Actions la realiza después. [Límites oficiales de D1](https://developers.cloudflare.com/d1/platform/limits/).
 
