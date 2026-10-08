@@ -17,7 +17,7 @@ PRIVACY = (
     "El administrador que dispone de la clave puede descifrarlos. Telegram procesa los mensajes; "
     "borrarlos no garantiza que nunca hayan existido copias.\n\n"
     "/desconectar elimina tu conexión y datos del estado activo. Las versiones cifradas anteriores "
-    "pueden seguir en el historial de GitHub hasta que el administrador lo elimine. "
+    "pueden seguir en las copias de Cloudflare y, si se utilizó, en el historial de GitHub. "
     "Revoca también el token en Canvas para anular su acceso.\n\n"
     "Este registro manual es un modo de prueba docente. Para una aplicación multiusuario "
     "de uso habitual Canvas exige OAuth."

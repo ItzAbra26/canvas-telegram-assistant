@@ -1,30 +1,34 @@
 # Verificación de esta entrega
 
-Comprobación realizada el 8 de octubre de 2026, con Python 3.14.2 en Windows y Python 3.12 en GitHub Actions. Repositorio desplegado: [ItzAbra26/canvas-telegram-assistant](https://github.com/ItzAbra26/canvas-telegram-assistant). Bot conectado: [SuperDelegado2B](https://t.me/SuperDelegado2B_bot).
+Comprobado el 8 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/canvas-telegram-assistant), [bot compartido](https://t.me/SuperDelegado2B_bot) y [servicio Cloudflare](https://canvas-telegram-assistant.canvas-telegram-immediate.workers.dev/).
 
 | Comprobación | Resultado |
 | --- | --- |
-| Instalación de dependencias del bot y desarrollo | Correcta |
-| `python -m pytest` | 111 pruebas correctas |
-| Cobertura de líneas medida por pytest-cov | 90 % |
-| `python -m ruff check .` | Correcto |
-| `python -m ruff format --check .` | Correcto |
-| `python -m pip check` | Sin incompatibilidades declaradas |
-| Compilación/imports y arranque de la entrada | Correctos, incluidos en tests |
-| `python -m src.main --demo` desde PowerShell | Correcto; sin red ni credenciales reales |
-| Workflows YAML y expresiones de Actions | Correctos con actionlint 1.7.12 |
-| Paquete de actionlint descargado del repositorio oficial | SHA-256 comprobado contra su archivo de checksums |
-| Tests, lint, formato y demo en GitHub con Python 3.12 | [111 pruebas; ejecución correcta](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/runs/37756792036) |
-| Arranque real, autenticación Telegram y menú de comandos | [Ejecución correcta](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/runs/37756793436) |
-| Registro inicial `/start` real | Una respuesta confirmada por Telegram y checkpoint cifrado conservado |
-| Persistencia real de GitHub | Rama `bot-state`, archivo `state.enc`; descifrado comprobado sin imprimir datos |
-| Secrets obligatorios | Los tres configurados y sus nombres comprobados; sin credenciales en el código |
-| Capacidad para los 15 alumnos | Persistencia simulada de 1.800 tareas; más de 5 MB de JSON antes de comprimir |
+| Dependencias Python y Node.js | Instaladas y verificadas |
+| Python local, 3.14.2 | 125 tests correctos; cobertura 90 % |
+| Webhook, Node.js 24 | 27 tests correctos |
+| Ruff: lint y formato | Correctos |
+| pip check | Sin incompatibilidades |
+| npm audit --audit-level=high | 0 vulnerabilidades |
+| Demo sin red, imports y arranque | Correctos |
+| Workflows | Validados con actionlint 1.7.12 |
+| Tests en GitHub, Python 3.12 y Node.js 24 | [Ejecución correcta](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/workflows/tests.yml) |
+| Comprobador horario real | [Ejecución correcta: una cuenta, cero envíos inciertos](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/runs/37772936854) |
+| Webhook de Telegram | Instalado; sin mensajes pendientes ni errores de recepción al comprobarlo |
+| Respuestas tras la migración | Confirmadas por Telegram y conservadas en D1 |
+| Envío real desde Cloudflare | Confirmado en 325 ms |
+| Resumen mediante caché, cola y transacciones | Una respuesta confirmada en 741 ms; prueba deduplicada |
+| Estado migrado | Una cuenta Canvas registrada, 148 tareas y avisos anteriores conservados |
+| Persistencia D1 | Descifrado y copia manual comprobados |
+| GitHub Secrets | Los cinco obligatorios configurados; valores no publicados |
+| Cuenta Cloudflare | Worker y base exclusivos; ningún proyecto de Supabase modificado |
 
-Las pruebas cubren el registro privado con token, 15 alumnos con cuentas y entregas independientes, rechazo del alumno 16, renovación y baja, rechazo de grupos/reenviados, invitación/lista de clase, fechas de Madrid y horario de verano, paginación, HTML, respuestas incompletas, fallback de entregas, cambios, nuevas tareas, los cuatro umbrales, borrados confirmados, persistencia cifrada, conflictos de escritura, rate limits e interrupciones durante envíos.
+Los tests cubren 15 usuarios independientes, rechazo del alumno 16, registro privado, rechazo de tokens reenviados y grupos, altas y bajas, conservación del historial al renovar credenciales, fechas de Madrid y cambios de horario, paginación oficial, HTML, entregas, cambios y recordatorios, errores de red, límites de frecuencia y envíos inciertos.
 
-Los tests sustituyen los clientes externos por simuladores. Además se han ejecutado varias revisiones reales desde GitHub: Telegram ha validado el token y devuelto el nombre público del bot mediante `getMe`; el menú de comandos está registrado y el estado cifrado se ha leído y guardado correctamente entre ejecuciones. Un usuario ha enviado `/start` y la respuesta de instrucciones figura como enviada con confirmación, sin envíos inciertos. La API real de MEDAC responde HTTP 401 sin credenciales, como corresponde. La red local interrumpe la conexión con api.telegram.org, pero el runner de GitHub sí conecta correctamente.
+Las pruebas de D1 ejecutan el SQL real en SQLite y comprueban que una transacción con versión antigua no escribe ninguna partición. También comprueban que la vista breve de un comando conserva las descripciones completas en el historial Python, que los alumnos permanecen aislados y que la configuración cifrada se puede actualizar sin tocar el estado. Python y JavaScript descifran mutuamente sus checkpoints Fernet comprimidos. Las consultas largas ofrecen todas las tareas en páginas pequeñas.
 
-Todavía no se ha registrado ni consultado una cuenta real de MEDAC: cada alumno debe completar `/start` y aportar su propio token. Las entregas y los avisos se han comprobado con datos simulados, incluidos 15 usuarios con estados independientes. La autorización institucional para OAuth y el cumplimiento de las condiciones de la práctica no se verifican mediante estos tests.
+Además de los mocks, se han consultado tareas de una cuenta real de MEDAC desde GitHub Actions y se han enviado mensajes reales mediante la Telegram Bot API desde Cloudflare. El comprobador horario omite getUpdates, respeta el webhook activo y conserva el estado mediante el endpoint autenticado de D1. La copia previa de GitHub permanece cifrada en bot-state y ya no es la base activa.
 
-Para repetir la comprobación, utiliza los comandos del README. La instalación de esta entrega ya tiene `CANVAS_BASE_URL`, `TELEGRAM_BOT_TOKEN` y `STATE_ENCRYPTION_KEY` configurados en GitHub Secrets. El único paso que requiere cada alumno es abrir el bot y registrarse en su chat privado. El calendario configurado revisa aproximadamente cada 15 minutos; GitHub puede retrasar las ejecuciones.
+La revisión se programa una vez por hora, al minuto 17; los cron de GitHub pueden retrasarse. Los comandos usan la última sincronización y se atienden directamente desde el webhook. Los tiempos medidos corresponden a pruebas concretas, no a una garantía para cualquier red o volumen. La práctica conserva el modo de prueba con tokens manuales solicitado; OAuth institucional no está implementado.
+
+Para repetir las pruebas locales, sigue el README. python scripts/cloud_admin.py status comprueba el webhook; probe comprueba el resumen con envío deduplicado; backup guarda una copia cifrada ignorada por Git. No se han generado tareas, cambios de notas ni entregas en Canvas para realizar las comprobaciones.

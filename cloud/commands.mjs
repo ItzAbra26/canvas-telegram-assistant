@@ -65,7 +65,7 @@ export function render(command, user, config, now, messages, page = 1) {
   if (command === 'privacidad') return [messages.privacy];
   if (command === 'estado') {
     const connection = user.disabled ? 'Token caducado/revocado: vuelve a conectar con /start.' : user.token ? 'Cuenta conectada.' : 'Sin cuenta conectada. Usa /start.';
-    return [`🔌 <b>Estado</b>\n${connection}\nÚltima sincronización: ${dateLabel(user.last_sync, config.timezone)}\nCanvas se revisa cada hora; los comandos usan los datos guardados.`];
+    return [`🔌 <b>Estado</b>\n${connection}\nÚltima sincronización: ${user.last_sync ? dateLabel(user.last_sync, config.timezone) : 'Todavía sin revisión completa'}\nEnvíos inciertos: ${user.uncertain_count || 0}\nCanvas se revisa cada hora; los comandos usan los datos guardados.`];
   }
   if (!user.token) return ['Primero conecta tu propia cuenta con /start.'];
   const active = new Set((user.courses || []).map(c => c.id));
@@ -91,7 +91,14 @@ export function render(command, user, config, now, messages, page = 1) {
   }
   if (command === 'asignaturas') {
     blocks.push('📚 <b>ASIGNATURAS ACTIVAS</b>');
-    for (const course of user.courses || []) blocks.push(`📚 ${escape(course.name, 180)}\n📝 Pendientes: ${todo.filter(a => a.course_id === course.id).length}`);
+    let courses = user.courses || [];
+    if (config.page_size && courses.length > config.page_size) {
+      const total = Math.ceil(courses.length / config.page_size);
+      page = Math.min(Math.max(1,page),total);
+      courses = courses.slice((page-1)*config.page_size,page*config.page_size);
+      blocks.push(`Página ${page} de ${total}. ` + (page < total ? `Continúa con <code>/asignaturas ${page+1}</code>.` : 'Última página.'));
+    }
+    for (const course of courses) blocks.push(`📚 ${escape(course.name, 180)}\n📝 Pendientes: ${todo.filter(a => a.course_id === course.id).length}`);
     if (!user.courses?.length) blocks.push('No hay cursos activos visibles en Canvas.');
     return blocks;
   }

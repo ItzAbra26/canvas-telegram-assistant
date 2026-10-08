@@ -209,3 +209,25 @@ test('Telegram network failures do not expose token URLs', async () => {
   const bot = new Telegram('SYNTHETIC_PRIVATE', async () => { throw new Error('private URL'); });
   await assert.rejects(bot.send(111, 'Hola'), error => error.ambiguous && !error.message.includes('SYNTHETIC') && !error.message.includes('URL'));
 });
+
+test('paginated commands expose every task in small complete pages', () => {
+  const tasks = Object.fromEntries(Array.from({length:17}, (_,index) => [`10:${index+1}`, {data:assignment(index+1),first_seen_at:'2026-10-08T09:00:00Z',reminders:{},revision:0}]));
+  const user = {token:'SYNTHETIC',initialized:true,courses:[{id:10,name:'Interfaces'}],tasks};
+  const seen = new Set();
+  for (let page=1;page<=3;page++) {
+    const blocks = render('pendientes',user,{...config,page_size:8},'2026-10-08T10:00:00Z',messages,page);
+    assert.ok(blocks.filter(block=>block.includes('📝')).length<=8);
+    for (const block of blocks) for (const match of block.matchAll(/📝 Práctica (\d+)/g)) seen.add(Number(match[1]));
+    assert.ok(pack(blocks).every(text=>text.length<=3500));
+    if (page<3) assert.match(blocks.join('\n'),new RegExp(`/pendientes ${page+1}`));
+  }
+  assert.equal(seen.size,17);
+});
+test('native fetch is called without a class instance receiver', async () => {
+  async function strictFetch(url) {
+    assert.equal(this,undefined);
+    return url.includes('telegram.org') ? Response.json({ok:true,result:{message_id:42}}) : Response.json({id:123});
+  }
+  assert.equal(await new Telegram('SYNTHETIC',strictFetch).send(111,'Hola'),42);
+  assert.equal(await new InitialCanvas(config.canvas_base_url,'SYNTHETIC',x=>x,strictFetch).profile(),123);
+});

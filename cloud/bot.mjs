@@ -127,6 +127,7 @@ export class ImmediateBot {
       } else if (command === '/id') {
         reply(`Tu identificador de Telegram es <code>${sender.id}</code>. Solo se muestra en este chat privado.`);
       } else if (command && command.slice(1) in this.messages.commands) {
+        user.uncertain_count = Object.values(state.outbox).filter(event => event.chat_id === sender.id && event.status === 'uncertain').length;
         const argument = text.split(/\s+/)[1];
         const page = /^\d{1,5}$/.test(argument || '') ? Number(argument) : 1;
         pages(state, prefix, sender.id, render(command.slice(1), user, this.config, now, this.messages, page));

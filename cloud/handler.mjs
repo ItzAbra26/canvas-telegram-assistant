@@ -2,6 +2,7 @@ import { hash, open, validateState } from './codec.mjs';
 import { ImmediateBot, StateStore, Telegram, TelegramError } from './bot.mjs';
 import { InitialCanvas } from './canvas.mjs';
 import { Conflict, validPart } from './d1-db.mjs';
+import { pack, render } from './commands.mjs';
 
 export function createHandler(db, messages, cleanHTML, fetcher = fetch, background = promise => promise.catch(() => {})) {
   return async request => {
@@ -53,12 +54,24 @@ export function createHandler(db, messages, cleanHTML, fetcher = fetch, backgrou
           const info = await telegram.call('getWebhookInfo', {});
           return Response.json({ webhook_active: info.url === config.webhook_url, pending_updates: info.pending_update_count, last_error_date: info.last_error_date || null });
         }
-        if (body.action === 'smoke') {
+        if (body.action === 'smoke' || body.action === 'probe') {
           const store = db.makeSmokeStore ? await db.makeSmokeStore(config, config.encryption_key) : new StateStore(db, config.encryption_key);
           const { state } = await store.load();
           const uid = Object.keys(state.users)[0];
           if (!uid) return Response.json({ delivered: false, reason: 'No users registered' });
           const start = performance.now();
+          if (body.action === 'probe') {
+            const prefix = 'deployment:immediate-v1';
+            const bot = new ImmediateBot(config, store, telegram, null, messages);
+            await store.change(current => {
+              const blocks = render('resumen', current.users[uid], config, new Date().toISOString(), messages);
+              for (const [index, text] of pack(blocks).entries()) current.outbox[`${prefix}:${index}`] ||= {status:'pending', chat_id:Number(uid),text};
+            });
+            await bot.dispatch(prefix);
+            const confirmed = (await store.load()).state;
+            const events = Object.entries(confirmed.outbox).filter(([id]) => id.startsWith(prefix+':'));
+            return Response.json({delivered:events.length>0 && events.every(([,event])=>event.status==='sent'), messages:events.length, milliseconds:Math.round(performance.now()-start)});
+          }
           await telegram.send(Number(uid), '✅ <b>Respuestas inmediatas activadas</b>\nAhora /start, /ayuda y los demás comandos responden al escribirlos. Canvas se actualiza cada hora. Prueba /estado.');
           return Response.json({ delivered: true, milliseconds: Math.round(performance.now() - start) });
         }

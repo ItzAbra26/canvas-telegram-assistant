@@ -8,9 +8,9 @@ El centro de esta configuración es **https://medac.instructure.com**. No hay co
 
 Abre **[SuperDelegado2B en Telegram](https://t.me/SuperDelegado2B_bot)** y envía `/start` por privado. Sigue la guía y envía tu propio token de Canvas cuando el bot te lo pida. Hay espacio para **15 alumnos**. No necesitas instalar Python, configurar GitHub ni mantener el ordenador encendido para utilizar esta instalación.
 
-El código está publicado en [ItzAbra26/canvas-telegram-assistant](https://github.com/ItzAbra26/canvas-telegram-assistant). Los tres Secrets obligatorios ya están configurados; las 111 pruebas y varias ejecuciones reales del bot han terminado correctamente en GitHub. También se ha comprobado una respuesta real a `/start`. El estado cifrado se conserva en `bot-state`. Puedes consultar las [ejecuciones automáticas](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/workflows/canvas-bot.yml).
+El código está publicado en [ItzAbra26/canvas-telegram-assistant](https://github.com/ItzAbra26/canvas-telegram-assistant). Cloudflare atiende Telegram, D1 conserva el estado cifrado y GitHub Actions revisa Canvas cada hora. Los cinco Secrets obligatorios ya están configurados. Se ha migrado una cuenta real de MEDAC con 148 tareas, conservando sus avisos anteriores. Puedes consultar las [ejecuciones automáticas](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/workflows/canvas-bot.yml).
 
-**Las respuestas llegan en la siguiente revisión, aproximadamente cada 15 minutos**, con posibles retrasos de GitHub. Espera a recibir las instrucciones de `/start` antes de enviar el token. Cada alumno debe registrar su cuenta; todavía no se ha validado una cuenta real de MEDAC. Las siguientes secciones explican cómo mantener esta instalación o crear otra desde cero.
+**Los comandos responden al escribirlos, normalmente en segundos.** La prueba real del resumen, incluyendo su persistencia y envío a Telegram, tardó 0,7 segundos. Las respuestas usan la última revisión de Canvas; `/estado` muestra su fecha. Las tareas se actualizan aproximadamente cada hora. Los demás alumnos solo tienen que abrir el bot y completar `/start`. Las secciones siguientes explican cómo mantener esta instalación o crear otra desde cero.
 
 > **Alcance docente:** el registro manual solicitado está disponible con `TEST_MODE=true`. La documentación de Canvas reserva los tokens manuales para pruebas previas a OAuth y exige OAuth para aplicaciones con varios usuarios. El consentimiento de la clase no sustituye ese requisito. Esta versión no implementa OAuth ni se presenta como un despliegue multiusuario de producción. [Fuente oficial](https://developerdocs.instructure.com/services/canvas/oauth2/file.oauth).
 
@@ -38,37 +38,35 @@ También envía avisos de tareas nuevas; cambios de fecha, descripción, puntos,
 
 Los textos usan HTML de Telegram, escapan títulos/descripciones y se reparten en mensajes de hasta 3.500 caracteres sin cortar etiquetas. La descripción HTML de Canvas se limpia y se abrevia en los avisos. La descripción completa permanece en el estado cifrado y en Canvas.
 
+Para que las listas sean rápidas y legibles, el webhook muestra **8 tareas por página**. Si hay más, indica cómo continuar: por ejemplo, `/pendientes 2`, `/atrasadas 2` o `/ultimas 2`. Puedes consultar todas las páginas; no se descartan tareas.
+
 ## 2. Ejecución sin tener tu PC encendido y coste
 
-**GitHub Actions ejecuta una revisión aproximadamente cada 15 minutos**, a los minutos 7, 22, 37 y 52 de cada hora. Puede seguir funcionando cuando cierres el ordenador.
+**Cloudflare Workers recibe cada mensaje de Telegram mediante un webhook HTTPS** y responde con los datos guardados. **GitHub Actions consulta Canvas una vez por hora**, al minuto 17. Ambos siguen funcionando cuando cierres el ordenador. La primera carga tras registrar un token se intenta inmediatamente en segundo plano; si no se completa, la revisión horaria vuelve a intentarla.
 
-Cada ejecución recibe los comandos pendientes, consulta las cuentas registradas, calcula cambios/recordatorios y envía las respuestas. **El bot no permanece conectado entre ejecuciones**: `/start`, el registro y los comandos pueden tardar hasta la siguiente revisión, y más si GitHub retrasa el trabajo. Los mensajes de Telegram pendientes no se conservan más de 24 horas. Para respuestas rápidas existe `--listen`, pero necesita una máquina encendida y no debe ejecutarse simultáneamente con Actions usando el mismo bot.
+El comprobador horario consulta cuentas registradas, calcula cambios y recordatorios y envía avisos. No recibe comandos con `getUpdates`: Telegram los entrega directamente a Cloudflare. Por ello un retraso de Actions no retrasa `/start` o `/resumen`, aunque sus datos podrían estar desactualizados. Cada respuesta muestra la última revisión; los fallos temporales conservan el estado anterior. Los recordatorios llegan en la primera revisión después de cruzar su umbral, con una precisión aproximada de una hora.
 
-Para la opción de coste cero, usa un repositorio **público con runners estándar de Linux**. El código es público; las credenciales están en Secrets y el estado está cifrado. GitHub documenta que esos runners son gratuitos en repositorios públicos; los privados consumen una cuota (2.000 minutos/mes con GitHub Free), y cada 15 minutos puede superarla. No se requiere una API de IA ni un servicio de base de datos de pago. [Facturación oficial](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+Esta instalación utiliza **Workers Free, D1 gratuito y un repositorio público con runners estándar de Linux**, sin contratar planes de pago ni IA. Workers Free permite 100.000 solicitudes diarias y tiene un límite de CPU de 10 ms por solicitud; D1 Free incluye bases de hasta 500 MB y cuotas diarias de consultas. El estado se separa por alumno y los comandos leen vistas breves para reducir el trabajo. Si se superan cuotas gratuitas, el servicio puede rechazar operaciones; no hemos activado facturación de Workers Paid. [Cloudflare Workers](https://developers.cloudflare.com/workers/platform/pricing/), [D1](https://developers.cloudflare.com/d1/platform/pricing/), [GitHub Actions](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
 No es una garantía de disponibilidad 24/7: los cron de Actions pueden retrasarse o descartarse, y los workflows públicos se desactivan tras 60 días sin actividad. Revisa la pestaña Actions durante la práctica y reactívalos si procede. El workflow debe estar en la rama predeterminada. [Límites de los eventos programados](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 
 ## 3. Arquitectura y persistencia
 
 ```text
-Telegram privado → registro y comandos → cuenta Canvas del alumno
-                                         ↓
-                                  API oficial Canvas
-                                         ↓
-                       tareas / entregas / comparación de cambios
-                                         ↓
-                   estado + cola de avisos cifrados con Fernet
-                                         ↓
-                   GitHub: rama bot-state, archivo state.enc
-                                         ↓
-                            respuestas privadas en Telegram
+Telegram privado → Cloudflare Worker → respuesta inmediata
+                         ↕
+                 Cloudflare D1 cifrado
+                         ↕
+GitHub Actions cada hora → API oficial Canvas → cambios y avisos
 ```
 
 El estado contiene usuarios, tokens, cursos activos, versiones anteriores de cada tarea, primera detección, recordatorios, cola de envíos y último `update_id` procesado. Está indexado por el ID del remitente de Telegram, comprobado contra su chat privado. No se aceptan registros desde grupos ni mensajes reenviados.
 
-**Elección:** JSON comprimido, cifrado y versionado en una rama dedicada de GitHub. Es sencillo, gratuito, no caduca como una caché y no añade un proveedor. La compresión se aplica antes del cifrado; permite guardar los enunciados que comparten los alumnos sin repetir su tamaño. Se ha probado con 15 alumnos y 1.800 tareas con descripciones extensas. Los estados de la versión anterior siguen siendo compatibles. `GitHubStore` usa la API de contenidos y el `GITHUB_TOKEN` temporal de Actions para guardar checkpoints; no necesita un token personal de GitHub. La rama se crea automáticamente a partir de la rama predeterminada y no recibe cambios de código posteriores. No la combines con `main`.
+**Elección:** D1, una base persistente gratuita compartida por el webhook y Actions. Guarda JSON comprimido y cifrado con Fernet en particiones: metadatos, datos y cola de cada alumno, historial completo y vista abreviada para comandos. Los identificadores de partición son hashes; tokens, IDs privados, cursos y tareas están dentro del cifrado. El comprobador Python reconstruye el historial completo; una respuesta rápida nunca reemplaza una descripción completa por su versión abreviada. La configuración de ejecución también está cifrada y cada entrada necesita su secreto de autenticación.
 
-El estado se guarda **tras cada registro/comando y sincronización, y antes y después de cada envío**. No depende de que llegue a ejecutarse un paso final del workflow. Una escritura fallida detiene los envíos. `concurrency` evita solapamientos del workflow; el SHA de cada archivo rechaza escrituras de un proceso con estado desactualizado. En local se utiliza un archivo cifrado, escritura atómica y bloqueo de proceso.
+La rama `bot-state` conserva la copia cifrada anterior a esta migración; ya no es el estado activo ni recibe los checkpoints del bot. `GitHubStore` sigue disponible como alternativa de ejecución periódica. D1 no depende de la caché ni de los archivos temporales del runner. Sus copias Time Travel gratuitas permiten recuperación de los últimos 7 días. [Límites de D1](https://developers.cloudflare.com/d1/platform/limits/).
+
+El estado se guarda **tras cada registro/comando y sincronización, y antes y después de cada envío**. No depende de un paso final del workflow. D1 utiliza una transacción con versión y nonce: una escritura con versión antigua no modifica ninguna partición. El webhook recarga y reintenta conflictos; Actions recarga hasta tres veces cuando detecta concurrencia. Una caída no crea una base vacía. Los envíos del webhook que siguen en curso se respetan durante la recuperación horaria. En local se conserva la alternativa de archivo cifrado, escritura atómica y bloqueo.
 
 **Avisos repetidos:** cada evento tiene una identidad estable y un estado persistido. Si Telegram rechaza explícitamente un mensaje por límite de frecuencia, se reintenta en otra ejecución. Si la conexión se pierde cuando Telegram podría haberlo aceptado, se marca como `uncertain` y **no se reenvía automáticamente**. Telegram no ofrece una clave de idempotencia para `sendMessage`: no puede garantizarse a la vez cero pérdidas y cero duplicados ante cualquier interrupción. Aquí se prioriza no duplicar; podría faltar un aviso incierto. `/estado` muestra el contador y `/resumen` permite consultar la información actual.
 
@@ -87,6 +85,13 @@ src/service.py             Registro y coordinación de cuentas
 src/commands.py            Respuestas a comandos
 src/notifier.py            Cambios, recordatorios y cola persistida
 src/storage.py             Cifrado, archivo local y persistencia GitHub
+src/remote_store.py        Estado compartido con el webhook
+src/partitions.py          División y reconstrucción del estado
+cloud/worker.mjs           Entrada del webhook de Cloudflare
+cloud/bot.mjs              Registro y respuestas inmediatas
+cloud/d1-db.mjs            Transacciones y vistas por alumno
+cloud/d1-schema.sql        Tablas persistentes
+scripts/cloud_admin.py     Configuración cifrada, diagnóstico y copias
 src/models.py              Cursos, tareas y estado de entrega
 src/utils.py               Fechas, HTML y formato de mensajes
 src/ai.py                  Interfaz para futuras funciones de IA
@@ -106,7 +111,7 @@ Solo el administrador/profesor necesita hacer esto una vez:
 5. BotFather entrega un token. Guárdalo como `TELEGRAM_BOT_TOKEN` en `.env` o GitHub Secrets, nunca en código ni en capturas compartidas.
 6. Abre el enlace del nuevo bot y pulsa Iniciar. El programa registra automáticamente el menú de comandos en su primera ejecución.
 
-El bot utiliza recepción periódica mediante `getUpdates`. No necesita una web pública, webhook ni dominio propio. Si reutilizas uno que ya tenga webhook, consulta la solución del apartado de problemas.
+El despliegue recomendado utiliza un webhook alojado en el dominio gratuito `workers.dev`. No necesitas comprar dominio ni mantener un servidor. La herramienta de configuración registra los comandos y el webhook en Telegram. Para probar la variante local con `getUpdates`, utiliza otro bot de pruebas; un bot con webhook activo no puede recibir también por polling.
 
 ## 5. Preparar y probar en Windows
 
@@ -130,7 +135,7 @@ Para usar el bot real:
 1. Si todavía no tienes `.env`, copia `.env.example` a `.env`.
 2. Genera una clave con el comando siguiente y copia su resultado a `STATE_ENCRYPTION_KEY`. **En esta entrega local ya se ha generado una clave en `.env`; puedes conservarla.**
 3. Introduce el token de BotFather en `TELEGRAM_BOT_TOKEN` dentro de `.env`.
-4. Deja `CANVAS_BASE_URL=https://medac.instructure.com`, `TEST_MODE=true`, `STORAGE_BACKEND=local` y `TIMEZONE=Europe/Madrid`.
+4. Para probar un bot local diferente, usa `CANVAS_BASE_URL=https://medac.instructure.com`, `TEST_MODE=true`, `STORAGE_BACKEND=local`, `DELIVERY_MODE=polling` y `TIMEZONE=Europe/Madrid`. El bot de esta clase ya tiene un webhook: no lo quites para hacer pruebas locales. La demo y los tests funcionan sin tocarlo.
 5. Ejecuta el bot en modo continuo, abre su chat privado y envía `/start`.
 
 ```powershell
@@ -144,7 +149,7 @@ Para usar el bot real:
 .\.venv\Scripts\python.exe -m src.main --once
 ```
 
-Pulsa Ctrl+C para detener el modo continuo. No tengas dos procesos del mismo bot ni mantengas el modo local escuchando una vez activado Actions: competirían por los mensajes entrantes. Al pasar de local a GitHub el estado no se migra automáticamente; los alumnos deben registrarse allí de nuevo. No subas el archivo local sin cifrarlo ni mezcles dos fuentes de estado.
+Pulsa Ctrl+C para detener el modo continuo. Usa un bot de pruebas distinto para `--listen`; el bot compartido funciona mediante webhook. Para migrar un estado cifrado existente, la herramienta de Cloudflare admite `bootstrap --state-file data/state.enc`, conservando la misma clave. No importes dos fuentes de estado ni ejecutes una inicialización sobre la base activa.
 
 En Linux/macOS usa `python3 -m venv .venv` y `.venv/bin/python` en lugar de `.\.venv\Scripts\python.exe`.
 
@@ -194,12 +199,24 @@ En el repositorio abre **Settings → Secrets and variables → Actions → New 
 | `CANVAS_BASE_URL` | `https://medac.instructure.com` | Sí |
 | `TELEGRAM_BOT_TOKEN` | Token del bot creado con BotFather | Sí |
 | `STATE_ENCRYPTION_KEY` | La clave Fernet de tu `.env`, o una recién generada antes del primer uso | Sí |
+| `STATE_API_URL` | URL HTTPS del Worker, generada al desplegarlo | Sí |
+| `STATE_API_KEY` | Secreto generado por `cloud_admin.py bootstrap`, guardado en `.env` | Sí |
 | `CLASS_INVITE_CODE` | Código de clase elegido por el profesor | Opcional, recomendable si el enlace del bot se comparte ampliamente |
 | `ALLOWED_TELEGRAM_USER_IDS` | IDs numéricos separados por comas, sin nombres de usuario | Opcional |
 
-**No necesitas `CANVAS_TOKEN` ni `TELEGRAM_CHAT_ID` como Secrets globales**: cada alumno registra su token en el chat y el bot obtiene su ID del remitente. Los nombres originales siguen en `.env.example` únicamente para la importación personal opcional. `GITHUB_TOKEN` y `GITHUB_REPOSITORY` se proporcionan automáticamente por Actions; no crees un PAT para el workflow.
+**No necesitas `CANVAS_TOKEN` ni `TELEGRAM_CHAT_ID` como Secrets globales**: cada alumno registra su token en el chat y el bot obtiene su ID del remitente. Los nombres originales siguen en `.env.example` para la importación personal opcional. Actions usa permiso `contents: read`; no necesita un PAT ni acceso de administrador a Cloudflare. `TELEGRAM_WEBHOOK_SECRET` se genera en `.env` y queda dentro de la configuración cifrada del webhook; no se añade como Secret de Actions.
 
-Con `CLASS_INVITE_CODE`, se entra con `/start CODIGO_DE_CLASE`; sin él basta `/start`. La lista de IDs permite limitar de forma más estricta la práctica. Si se configura, el bot ignora a los demás y deja de sincronizar sus cuentas ya registradas. No se borra su estado automáticamente.
+Con `CLASS_INVITE_CODE`, se entra con `/start CODIGO_DE_CLASE`; sin él basta `/start`. La lista de IDs permite limitar la práctica. Estos valores deben coincidir en GitHub Secrets y en la configuración de Cloudflare. Para cambiar los ajustes después del despliegue, actualiza `.env`, genera la configuración cifrada sin alterar los alumnos e impórtala:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/cloud_admin.py configure --output data/cloudflare-runtime.sql --use-resolved-ip
+cd cloud
+npx wrangler d1 execute canvas-telegram-assistant --remote --file ../data/cloudflare-runtime.sql
+cd ..
+.\.venv\Scripts\python.exe scripts/cloud_admin.py setup
+```
+
+`configure` conserva tokens, tareas, cola y claves existentes. No uses `bootstrap` para modificar una base que ya tiene usuarios.
 
 ### Obtener `TELEGRAM_CHAT_ID` o los IDs de la clase
 
@@ -211,17 +228,47 @@ Para importar solo tu cuenta desde variables de entorno, rellena los dos valores
 .\.venv\Scripts\python.exe -m src.main --import-personal --once
 ```
 
-## 9. Activar Actions y comprobar el despliegue
+## 9. Desplegar desde cero y activar Actions
 
-1. Comprueba que `.github/workflows/canvas-bot.yml` está en `main` y que `main` es la rama predeterminada.
-2. Añade los tres Secrets obligatorios.
-3. En **Actions → Canvas Telegram Bot → Run workflow**, selecciona la rama predeterminada y ejecuta.
-4. Comprueba que se instalan las dependencias y finaliza la revisión. El workflow solicita `contents: write` para guardar el estado. Si el centro/organización impide permisos de escritura, su administrador tendrá que habilitarlos.
-5. Envía `/start` al bot. Ejecuta manualmente otra revisión para recibir las instrucciones sin esperar al cron.
-6. Envía tu token privado. Ejecuta otra revisión para validarlo y cargar tus tareas.
-7. Envía `/resumen` y lanza una revisión más. Comprueba tu estado de entrega con el de Canvas.
-8. En GitHub aparecerán la rama `bot-state` y `state.enc`, con contenido cifrado. No debería aparecer ninguna descripción de tarea ni token en texto claro.
-9. Las siguientes revisiones se programan cada 15 minutos. Ya puedes apagar el PC.
+**Esta instalación ya está desplegada. No repitas su inicialización.** Los pasos siguientes sirven para crear otra instalación con otro bot y una base nueva.
+
+1. Crea el repositorio según el apartado 7, un bot con BotFather y `.env` según el apartado 6. Instala también Node.js 24 y crea una cuenta gratuita en [Cloudflare](https://dash.cloudflare.com/). No contrates Workers Paid.
+2. Desde la carpeta del proyecto, instala la parte de Cloudflare e inicia sesión. Wrangler es la herramienta oficial; autoriza lectura de tu cuenta, publicación de Workers/Scripts y gestión de D1.
+
+```powershell
+cd cloud
+npm ci
+npx wrangler login
+npx wrangler d1 create canvas-telegram-assistant --location weur
+```
+
+3. Copia el `database_id` que devuelve el último comando en `cloud/wrangler.jsonc`, sustituyendo el ID de esta instalación. Puedes cambiar también `name` y `database_name` si elegiste otros nombres. El binding debe seguir llamándose `BOT_DB`.
+4. Crea las tablas y publica el Worker. Anota la URL HTTPS que termina en `workers.dev`.
+
+```powershell
+npx wrangler d1 execute canvas-telegram-assistant --remote --file d1-schema.sql
+npm run deploy
+cd ..
+```
+
+5. Sustituye `URL_DEL_WORKER` por esa URL y genera la configuración cifrada. Este paso crea `STATE_API_KEY` y `TELEGRAM_WEBHOOK_SECRET` en `.env`; no los imprime ni los sube a Git. El parámetro `--use-resolved-ip` utiliza la IP pública verificada para evitar la caché DNS inicial de Telegram.
+
+```powershell
+.\.venv\Scripts\python.exe scripts/cloud_admin.py bootstrap --url https://URL_DEL_WORKER/ --use-resolved-ip
+cd cloud
+npx wrangler d1 execute canvas-telegram-assistant --remote --file ../data/cloudflare-bootstrap.sql
+cd ..
+.\.venv\Scripts\python.exe scripts/cloud_admin.py setup
+.\.venv\Scripts\python.exe scripts/cloud_admin.py status
+```
+
+6. `setup` debe indicar `webhook_installed: true`; `status`, `webhook_active: true`. Si la URL acaba de crearse, espera a que resuelva. Si hay fallos de entrega tras un cambio de IP, vuelve a ejecutar `configure --use-resolved-ip`, importa su SQL y ejecuta `setup`. No compartas los archivos generados de `data/`.
+7. Añade los **cinco Secrets obligatorios** del apartado 8 en GitHub. Los valores `STATE_API_URL` y `STATE_API_KEY` están en tu `.env`. El workflow ya tiene `STORAGE_BACKEND=remote`, `DELIVERY_MODE=webhook`, `MAX_USERS=15` y revisión horaria.
+8. Comprueba que `main` es la rama predeterminada. En **Actions → Canvas Telegram Bot → Run workflow**, ejecuta una revisión. Debe finalizar en verde. No necesita permiso para escribir en el repositorio: los checkpoints van a D1.
+9. Abre tu bot en privado, envía `/start`, espera las instrucciones y envía tu token. `/resumen` y `/estado` responden directamente; no ejecutes Actions para atender comandos.
+10. Cuando termine la primera carga, compara el estado de una entrega con Canvas. Si la carga inmediata falla, lanza manualmente la revisión horaria para reintentarlo sin esperar.
+11. Puedes comprobar un envío real del resumen desde la nube con `python scripts/cloud_admin.py probe`. Envía al primer usuario registrado una respuesta de prueba, con deduplicación, e indica el tiempo medido.
+12. Ya puedes apagar el PC. Actions queda programado al minuto 17 de cada hora. Mantén activado el workflow y consulta `/estado` para saber cuándo revisó Canvas por última vez.
 
 El workflow no publica artefactos con datos de alumnos. Los logs muestran conteos y errores de servicio/HTTP, no tokens ni cuerpos de respuesta. El workflow `Tests` corre por cambios de código y pull requests; no utiliza tus Secrets ni responde al alumnado.
 
@@ -265,33 +312,34 @@ Un 404 no permite distinguir con certeza una eliminación de una tarea que ya no
 
 | Problema | Qué hacer |
 | --- | --- |
-| Falta una variable al iniciar | Revisa `.env` o los tres Secrets obligatorios |
+| Falta una variable al iniciar | Revisa `.env` o los cinco Secrets obligatorios |
 | 401 de Canvas | Token caducado/revocado; el bot pausa esa cuenta y pide renovar con `/start` |
 | 403 de Canvas | Revisa permisos con el administrador; el bot conserva los datos anteriores |
 | 429 / caída temporal de Canvas | Lecturas con reintentos limitados; conserva el estado y vuelve en otra revisión |
 | Canvas entrega datos incompletos | Se rechaza la sincronización, sin borrar tareas |
-| Telegram no responde enseguida | Con Actions espera la siguiente revisión o ejecuta `Run workflow` |
+| Telegram no responde enseguida | Ejecuta `cloud_admin.py status`; comprueba el webhook, cuotas y disponibilidad de Cloudflare |
 | Telegram 401 | Revisa el token de BotFather |
 | Telegram 403 al enviar | Usuario ha bloqueado el bot; debe abrirlo de nuevo y usar un comando para recibir respuesta |
 | Telegram 429 | Se respeta `retry_after` y la cola se conserva para otra ejecución |
-| «Hay un webhook activo» | Detén la integración anterior y ejecuta `python -m src.main --remove-webhook` con el entorno configurado |
+| «Hay un webhook activo» | Para el bot compartido usa `DELIVERY_MODE=webhook` y `--sync-only`; no retires su webhook |
 | Dos procesos reciben mensajes del mismo bot | Detén el modo local al activar Actions; no uses el mismo bot en dos repositorios |
-| GitHub 403 al guardar | Revisa permisos de Actions, reglas de la rama y límites de la API |
-| GitHub 409 al guardar | Hay otro escritor o un cambio de estado externo; espera una ejecución nueva, sin forzar la escritura |
+| HTTP 409 al guardar en D1 | Otro proceso avanzó la versión; se recarga, sin forzar ni sobrescribir su cambio |
+| Telegram rechaza el webhook por DNS | Regenera la configuración con `--use-resolved-ip` y ejecuta `setup` |
 | No se puede descifrar el estado | Restaura la clave original. El bot se detiene y no sustituye el estado por uno vacío |
 | Actions se ha desactivado | Revisa cuota/actividad y habilita el workflow de nuevo |
 | Envíos inciertos | Revisa `/estado`, comprueba Telegram y usa `/resumen`; no se reenvían automáticamente |
 
 Los tokens de alumno caducan según la configuración y políticas de Canvas/centro. La guía vigente indica caducidad de los tokens de estudiante; comprueba la fecha que muestra tu instancia. [Gestión oficial de tokens](https://community.instructure.com/en/kb/articles/662901-unknown).
 
-El límite inicial es `MAX_USERS=15`. Ajusta ese valor en `.env` y en el workflow si lo necesitas. Más cuentas y tareas implican más consultas, commits y tiempo; el workflow tiene un máximo de 10 minutos. El bot envía como máximo 80 mensajes por ejecución y deja el resto en cola. El archivo remoto comprimido y cifrado se limita a 900 KB para evitar la limitación de lectura de la API de contenidos. La prueba de 1.800 tareas supera 5 MB de JSON original y cabe tras comprimir; el tamaño real depende de tus enunciados. Si se alcanza el límite, el programa detiene los envíos y conserva el estado anterior; para una clase grande o uso prolongado conviene migrar a una base de datos. [Límites oficiales del almacenamiento](https://docs.github.com/en/rest/repos/contents#get-repository-content).
+El límite inicial es `MAX_USERS=15`; para esta práctica conserva ese valor en `.env`, el workflow y la configuración cifrada. El comprobador tiene un máximo de 10 minutos y envía como máximo 80 mensajes por revisión, dejando el resto en cola. Cada partición cifrada tiene un límite preventivo de 1,8 MB frente al máximo de 2 MB por fila de D1. Si se supera, el bot detiene las escrituras y conserva el estado anterior. Los tests incluyen 15 cuentas y enunciados extensos, pero no garantizan capacidad ilimitada. La primera carga del webhook también está sujeta al tiempo de segundo plano de Workers; si no termina, Actions la realiza después. [Límites oficiales de D1](https://developers.cloudflare.com/d1/platform/limits/).
 
 ## 13. Seguridad, bajas y copias
 
 - `.env`, archivos locales cifrados, logs y el entorno Python se ignoran en Git. `.env.example` contiene solo nombres y valores de configuración no secretos.
 - Nunca compartas `STATE_ENCRYPTION_KEY`: permite descifrar los tokens y datos de todos. Conserva una copia segura, pues perderla impide recuperar el estado.
-- El cifrado protege el contenido publicado en GitHub, pero los lectores del repositorio pueden ver que existen archivos/commits y sus fechas. El administrador que tiene la clave puede acceder al contenido. Los colaboradores con capacidad de modificar el workflow son administradores de confianza.
-- `/desconectar` borra el estado activo y la cola de ese alumno. **No purga automáticamente las versiones cifradas del historial Git.** Revocar su token en Canvas anula su uso incluso si existiera una versión anterior. Para una retirada completa de copias históricas, el administrador debe planificar una purga del historial y de sus copias; no basta borrar el archivo actual.
+- D1 almacena los datos cifrados. La copia anterior de `bot-state` también está cifrada. El administrador que tiene la clave puede acceder al contenido; los colaboradores que modifican el workflow son administradores de confianza.
+- `/desconectar` borra el estado activo y la cola anterior de ese alumno. No purga las copias de recuperación de D1 ni el historial Git anterior a la migración. Revocar el token en Canvas anula su uso aunque exista una copia cifrada antigua.
+- Para una copia manual cifrada, ejecuta `python scripts/cloud_admin.py backup`. Se guarda en `data/cloud-backup.enc`, ignorado por Git; conserva también la clave en un lugar seguro. D1 Free dispone de Time Travel de 7 días en su panel.
 - Telegram conserva/procesa los mensajes conforme a su servicio. El borrado automático es una reducción de exposición, no una garantía de que el token nunca haya sido copiado.
 - El bot no almacena los updates completos ni registra el texto del mensaje que contiene el token. Rechaza enlaces de paginación a otros dominios y no sigue redirecciones de Canvas con credenciales.
 - Para terminar la práctica, desactiva el workflow, pide que se revoquen los tokens, elimina los Secrets y gestiona las copias de estado según lo acordado con la clase.
