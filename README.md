@@ -4,6 +4,14 @@ Bot de **prácticas de clase, multiusuario**, en Python. Cada alumno abre el mis
 
 El centro de esta configuración es **https://medac.instructure.com**. No hay contraseñas ni tokens reales en el código. El bot utiliza la API oficial y solo realiza consultas a Canvas: no entrega tareas ni modifica calificaciones.
 
+### Esta instalación ya está activa
+
+Abre **[SuperDelegado2B en Telegram](https://t.me/SuperDelegado2B_bot)** y envía `/start` por privado. Sigue la guía y envía tu propio token de Canvas cuando el bot te lo pida. Hay espacio para **15 alumnos**. No necesitas instalar Python, configurar GitHub ni mantener el ordenador encendido para utilizar esta instalación.
+
+El código está publicado en [ItzAbra26/canvas-telegram-assistant](https://github.com/ItzAbra26/canvas-telegram-assistant). Los tres Secrets obligatorios ya están configurados; las pruebas y dos ejecuciones reales del bot han terminado correctamente en GitHub. El estado cifrado se conserva en `bot-state`. Puedes consultar las [ejecuciones automáticas](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/workflows/canvas-bot.yml).
+
+**Las respuestas llegan en la siguiente revisión, aproximadamente cada 15 minutos**, con posibles retrasos de GitHub. Espera a recibir las instrucciones de `/start` antes de enviar el token. Cada alumno debe registrar su cuenta; todavía no se ha validado una cuenta real de MEDAC. Las siguientes secciones explican cómo mantener esta instalación o crear otra desde cero.
+
 > **Alcance docente:** el registro manual solicitado está disponible con `TEST_MODE=true`. La documentación de Canvas reserva los tokens manuales para pruebas previas a OAuth y exige OAuth para aplicaciones con varios usuarios. El consentimiento de la clase no sustituye ese requisito. Esta versión no implementa OAuth ni se presenta como un despliegue multiusuario de producción. [Fuente oficial](https://developerdocs.instructure.com/services/canvas/oauth2/file.oauth).
 
 ## 1. Qué puedes usar
