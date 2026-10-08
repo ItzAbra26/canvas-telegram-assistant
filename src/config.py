@@ -30,6 +30,9 @@ class Config:
     state_branch: str = "bot-state"
     canvas_token: str = field(default="", repr=False)
     personal_chat_id: str = field(default="", repr=False)
+    state_api_url: str = ""
+    state_api_key: str = field(default="", repr=False)
+    delivery_mode: str = "polling"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -73,8 +76,25 @@ class Config:
         if not 1 <= max_users <= 100 or not 1 <= recent <= 365:
             raise BotError("MAX_USERS: 1–100; RECENT_DAYS: 1–365.")
         backend = os.getenv("STORAGE_BACKEND", "local")
-        if backend not in {"local", "github"}:
-            raise BotError("STORAGE_BACKEND debe ser local o github.")
+        if backend not in {"local", "github", "remote"}:
+            raise BotError("STORAGE_BACKEND debe ser local, github o remote.")
+        state_api_url = os.getenv("STATE_API_URL", "")
+        state_api_key = os.getenv("STATE_API_KEY", "")
+        if backend == "remote":
+            remote = urlsplit(state_api_url)
+            if (
+                remote.scheme != "https"
+                or not remote.hostname
+                or remote.username
+                or remote.password
+                or remote.query
+                or remote.fragment
+                or not state_api_key
+            ):
+                raise BotError("El estado remoto requiere STATE_API_URL HTTPS y STATE_API_KEY.")
+        delivery_mode = os.getenv("DELIVERY_MODE", "polling")
+        if delivery_mode not in {"polling", "webhook"}:
+            raise BotError("DELIVERY_MODE debe ser polling o webhook.")
         repo = os.getenv("GITHUB_REPOSITORY", "")
         gh_token = os.getenv("GITHUB_TOKEN", "")
         branch = os.getenv("STATE_BRANCH", "bot-state")
@@ -100,4 +120,7 @@ class Config:
             state_branch=branch,
             canvas_token=os.getenv("CANVAS_TOKEN", ""),
             personal_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+            state_api_url=state_api_url,
+            state_api_key=state_api_key,
+            delivery_mode=delivery_mode,
         )

@@ -38,9 +38,13 @@ def start_text(config: Config) -> str:
         "acceder a los datos con la clave; consulta /privacidad.\n\n"
         "🔒 No envíes tu contraseña ni publiques el token en un grupo.\n"
         "🧪 Los tokens manuales son para esta prueba; el uso multiusuario habitual requiere OAuth.\n"
-        "⏱️ En GitHub Actions el registro y los comandos se procesan en la siguiente revisión "
-        "(aproximadamente 15 minutos; puede haber retrasos).\n\n"
-        "Envía tu token para continuar, o /cancelar para salir."
+        + (
+            "⚡ Los comandos responden con los últimos datos guardados. Canvas se revisa cada hora.\n\n"
+            if config.delivery_mode == "webhook"
+            else "⏱️ En GitHub Actions el registro y los comandos se procesan en la siguiente revisión "
+            "(aproximadamente 15 minutos; puede haber retrasos).\n\n"
+        )
+        + "Envía tu token para continuar, o /cancelar para salir."
     )
 
 

@@ -179,9 +179,12 @@ def reconcile(state: State, uid: str, snapshot: Snapshot, config: Config, now: d
         )
 
 
-def recover_inflight(state: State) -> None:
+def recover_inflight(state: State, now: datetime | None = None) -> None:
     for event in state["outbox"].values():
         if event["status"] == "sending":
+            started = parse_date(event.get("started_at"))
+            if now and started and (now - started).total_seconds() < 120:
+                continue  # El webhook puede seguir terminando un envío activo.
             event["status"] = "uncertain"
             event.pop("text", None)
 
@@ -214,6 +217,7 @@ def dispatch(
                 store.save(state)
                 continue
         event["status"] = "sending"
+        event["started_at"] = now.isoformat()
         store.save(state)  # Si falla, NO se hace la llamada a Telegram.
         try:
             message_id = telegram.send_message(event["chat_id"], event["text"])

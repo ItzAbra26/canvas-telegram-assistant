@@ -187,16 +187,19 @@ def test_workflow_structure_and_persistence():
         Path(".github/workflows/canvas-bot.yml").read_text(encoding="utf-8"),
         Loader=yaml.BaseLoader,  # noqa: S506 -- BaseLoader solo construye cadenas, no objetos Python.
     )
-    assert workflow["on"]["schedule"][0]["cron"] == "7,22,37,52 * * * *"
+    assert workflow["on"]["schedule"][0]["cron"] == "17 * * * *"
     assert "workflow_dispatch" in workflow["on"]
-    assert workflow["permissions"]["contents"] == "write"
+    assert workflow["permissions"]["contents"] == "read"
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     job = workflow["jobs"]["check"]
-    assert job["env"]["STORAGE_BACKEND"] == "github"
+    assert job["env"]["STORAGE_BACKEND"] == "remote"
+    assert job["env"]["DELIVERY_MODE"] == "webhook"
     assert job["env"]["MAX_USERS"] == "15"
     assert job["env"]["STATE_ENCRYPTION_KEY"] == "${{ secrets.STATE_ENCRYPTION_KEY }}"
-    assert job["env"]["GITHUB_TOKEN"] == "${{ github.token }}"
-    assert any(step.get("run") == "python -m src.main --once" for step in job["steps"])
+    assert job["env"]["STATE_API_KEY"] == "${{ secrets.STATE_API_KEY }}"
+    assert any(
+        "python -m src.main --once --sync-only" in step.get("run", "") for step in job["steps"]
+    )
     assert "default_branch" in job["if"]
 
 

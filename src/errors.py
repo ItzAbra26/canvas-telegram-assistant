@@ -18,6 +18,10 @@ class StorageError(BotError):
     pass
 
 
+class StorageConflict(StorageError):
+    """Otro proceso guardó antes: recargar antes de volver a calcular/enviar."""
+
+
 class AmbiguousDelivery(BotError):
     """Telegram pudo aceptar el mensaje: no se reenvía automáticamente."""
 

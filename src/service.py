@@ -209,9 +209,9 @@ class BotService:
                 "Envía el token como texto durante /start, o consulta /ayuda.",
             )
 
-    def cycle(self, now: datetime) -> bool:
+    def cycle(self, now: datetime, receive_updates: bool = True) -> bool:
         state = self.store.load()
-        recover_inflight(state)
+        recover_inflight(state, now if not receive_updates else None)
         self.store.save(state)
         healthy = True
         if not state["commands_registered"]:
@@ -225,7 +225,7 @@ class BotService:
         commands: list[tuple[str, str, int]] = []
         try:
             # Un lote por ejecución: el siguiente procesa el resto; no exceder el tiempo de Actions.
-            updates = self.telegram.get_updates(state["offset"])
+            updates = self.telegram.get_updates(state["offset"]) if receive_updates else []
         except APIError as exc:
             logger.error("No se pudieron leer comandos: %s", exc)
             updates = []

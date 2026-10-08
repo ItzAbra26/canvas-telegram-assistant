@@ -27,3 +27,12 @@ jobs:
       - run: python -m ruff format --check .
       - run: python -m pytest
       - run: python -m src.main --demo
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloud/package-lock.json
+      - run: npm ci --prefix cloud
+      - run: npm test --prefix cloud
+      - run: npm run check --prefix cloud
+      - run: npm audit --prefix cloud --audit-level=high
