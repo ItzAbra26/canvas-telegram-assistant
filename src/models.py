@@ -50,6 +50,10 @@ class Assignment:
         due = parse_date(self.due_at)
         return bool(self.pending and due and due < now)
 
+    def pending_at(self, now: datetime) -> bool:
+        """Pending in the UI excludes missed deadlines; delivery tracking still uses pending."""
+        return self.pending and not self.overdue(now)
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 

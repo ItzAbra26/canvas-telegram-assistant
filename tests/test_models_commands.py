@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.commands import render_command
+from src.commands import help_text, render_command, start_text
 from src.models import Assignment, Course, Snapshot
 from src.notifier import reconcile, task_block
 from src.utils import clean_html, date_label, e, pack_messages, parse_date, safe_link, time_left
@@ -78,6 +78,7 @@ def test_incomplete_assignment_rejected(raw_task):
         "manana",
         "semana",
         "pendientes",
+        "perdidas",
         "atrasadas",
         "ultimas",
         "asignaturas",
@@ -111,8 +112,76 @@ def test_summary_disjoint_categories(state, task, config, now):
     tasks.append(replace(task, id=5, due_at=None))
     reconcile(state, "111", Snapshot([Course(10, "Curso")], tasks, set()), config, now)
     text = "\n".join(render_command("resumen", state["users"]["111"], config, now))
-    assert "Urgentes: 2" in text and "Esta semana: 1" in text and "Más adelante: 1" in text
-    assert "Sin fecha: 1" in text and "Total pendientes: 5" in text
+    assert "Urgentes: 1" in text and "Esta semana: 1" in text and "Más adelante: 1" in text
+    assert "Sin fecha: 1" in text and "Total pendientes: 4" in text and "Perdidas: 1" in text
+
+
+@pytest.mark.parametrize("seconds,expected", [(-1, False), (0, True), (1, True), (None, True)])
+def test_pending_deadline_boundary(task, now, seconds, expected):
+    a = replace(
+        task, due_at=(now + timedelta(seconds=seconds)).isoformat() if seconds is not None else None
+    )
+    assert a.pending_at(now) is expected
+    assert a.overdue(now) is (not expected)
+
+
+def test_lost_tasks_separate_from_pending_and_reclassify_without_sync(state, task, config, now):
+    tasks = [
+        replace(
+            task, id=1, name="Perdida sin entrega", due_at=(now - timedelta(seconds=1)).isoformat()
+        ),
+        replace(task, id=2, name="Vence ahora", due_at=now.isoformat()),
+        replace(task, id=3, name="Sin fecha", due_at=None),
+        replace(
+            task,
+            id=4,
+            name="Ya entregada",
+            due_at=(now - timedelta(days=1)).isoformat(),
+            submitted=True,
+        ),
+        replace(
+            task, id=5, name="Exenta", due_at=(now - timedelta(days=1)).isoformat(), excused=True
+        ),
+        replace(
+            task,
+            id=6,
+            name="Sin entrega requerida",
+            due_at=(now - timedelta(days=1)).isoformat(),
+            requires_submission=False,
+        ),
+    ]
+    reconcile(state, "111", Snapshot([Course(10, "Curso")], tasks, set()), config, now)
+    user = state["users"]["111"]
+    pending_text = "\n".join(render_command("pendientes", user, config, now))
+    lost_text = "\n".join(render_command("perdidas", user, config, now))
+    assert "Perdida sin entrega" not in pending_text
+    assert "Vence ahora" in pending_text and "Sin fecha" in pending_text
+    assert "TAREAS PERDIDAS</b> · 1" in lost_text and "🔴 Perdida" in lost_text
+    for name in ["Vence ahora", "Sin fecha", "Ya entregada", "Exenta", "Sin entrega requerida"]:
+        assert name not in lost_text
+    assert render_command("atrasadas", user, config, now) == render_command(
+        "perdidas", user, config, now
+    )
+    courses = "\n".join(render_command("asignaturas", user, config, now))
+    assert "Pendientes: 2" in courses and "Perdidas: 1" in courses
+    later = "\n".join(render_command("resumen", user, config, now + timedelta(seconds=1)))
+    assert "Total pendientes: 1" in later and "Perdidas: 2" in later
+    # A deadline extension in the cache restores the task without changing submission status.
+    user["tasks"]["10:1"]["data"]["due_at"] = (now + timedelta(days=1)).isoformat()
+    assert "Perdida sin entrega" in "\n".join(render_command("pendientes", user, config, now))
+
+
+def test_branding_and_initial_counts(state, task, config, now):
+    tasks = [task, replace(task, id=2, due_at=(now - timedelta(days=1)).isoformat())]
+    reconcile(state, "111", Snapshot([Course(10, "Curso")], tasks, set()), config, now)
+    baseline = state["outbox"]["u111:baseline"]["text"]
+    assert "1 tareas pendientes · 1 perdidas" in baseline
+    for text in [
+        start_text(config),
+        help_text(),
+        "\n".join(render_command("resumen", state["users"]["111"], config, now)),
+    ]:
+        assert "Made by; AB Solutions" in text
 
 
 def test_pagination_and_extreme_html_entities(task, config, now):
@@ -156,6 +225,7 @@ def test_scorm_excluded_from_every_task_list_and_summary(state, task, config, no
         "manana",
         "semana",
         "pendientes",
+        "perdidas",
         "atrasadas",
         "ultimas",
         "resumen",

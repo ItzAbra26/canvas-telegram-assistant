@@ -5,15 +5,15 @@ Comprobado el 9 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/c
 | Comprobación | Resultado |
 | --- | --- |
 | Dependencias Python y Node.js | Instaladas y verificadas |
-| Python local, 3.14.2 | 142 tests correctos; cobertura 90 % |
-| Webhook, Node.js 24 | 53 tests correctos |
+| Python local, 3.14.2 | 149 tests correctos; cobertura 90 % |
+| Webhook, Node.js 24 | 55 tests correctos |
 | Ruff: lint y formato | Correctos |
 | pip check | Sin incompatibilidades |
 | npm audit --audit-level=high | 0 vulnerabilidades |
 | Demo sin red, imports y arranque | Correctos |
 | Workflows | Validados con actionlint 1.7.12 |
 | Tests en GitHub, Python 3.12 y Node.js 24 | [Ejecución correcta](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/workflows/tests.yml) |
-| Comprobador horario real | [Ejecución correcta: una cuenta, cero envíos inciertos](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/runs/37772936854) |
+| Comprobador horario real | [Ejecución correcta: seis cuentas, cero envíos inciertos](https://github.com/ItzAbra26/canvas-telegram-assistant/actions/runs/37922314245) |
 | Webhook de Telegram | Instalado; sin mensajes pendientes ni errores de recepción al comprobarlo |
 | Respuestas tras la migración | Confirmadas por Telegram y conservadas en D1 |
 | Envío real desde Cloudflare | Confirmado en 325 ms |
@@ -42,3 +42,5 @@ El 9 de octubre se añadieron botones, /actualizar y /entregar al webhook. Teleg
 El flujo de entrega de archivos se verificó con documentos y APIs simuladas. No se ha entregado ningún trabajo académico real para comprobarlo. La primera prueba real debe hacerse con un archivo del alumno en una tarea de práctica que admita archivos, revisando la pantalla de confirmación y el resultado en Canvas. Las restricciones del centro, intentos disponibles y herramientas externas siguen sujetos a Canvas.
 
 Se excluyen las tareas cuyo nombre contenga SCORM, tanto en datos nuevos como en caché e historial. Las pruebas comprueban listas, contadores, avisos pendientes y selector de entregas. También se ha corregido la concurrencia observada durante la prueba real: una lectura SQL atómica evita interrupciones entre particiones; Python combina cambios independientes sin reemplazar los mensajes o datos del webhook. Se rechazan cambios de cuenta, desconexiones, actualizaciones incompatibles y reclamaciones simultáneas del mismo envío.
+
+Las tareas vencidas sin entregar ahora se muestran como **Perdidas**, con botón y comando `/perdidas`. Las 204 pruebas verifican que quedan fuera de pendientes y urgentes, que las entregadas o exentas no se confunden con perdidas, el límite exacto del vencimiento, la reclasificación sin sincronización y tras ampliar la fecha, y la separación de contadores por asignatura. Python y JavaScript producen las mismas listas y resúmenes. La firma **Made by; AB Solutions** aparece en inicio, ayuda y resumen. Actualización publicada en Cloudflare con versión `710ab573-6e64-456a-aa64-0fd7fd1205a4`; menú de comandos registrado de nuevo en Telegram.

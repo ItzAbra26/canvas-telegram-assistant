@@ -35,6 +35,21 @@ test('menu callbacks acknowledge the button and keep personal results private', 
   await env.bot.receive(cb(2, 'cmd:resumen:1', 222, 111));
   assert.equal(env.telegram.sent.length, 1);
 });
+
+test('lost button replies with lost tasks and the upload picker puts pending tasks first', async () => {
+  const env = await setup(), user = env.store.state.users['111'];
+  user.tasks['10:21'] = { ...structuredClone(user.tasks['10:20']), data: { ...task, id: 21, name: 'Perdida antigua', due_at: '2000-01-01T00:00:00Z' } };
+  assert.ok(menu().inline_keyboard.some(row => row.some(b => b.callback_data === 'cmd:perdidas:1')));
+  await env.bot.receive(cb(1, 'cmd:perdidas:1'));
+  assert.match(env.telegram.sent.at(-1).text, /Perdida antigua/);
+  assert.match(env.telegram.sent.at(-1).text, /TAREAS PERDIDAS/);
+  await env.bot.receive(cb(2, 'list:1'));
+  const buttons = env.telegram.sent.at(-1).markup.inline_keyboard.flat().filter(b => b.callback_data.startsWith('task:'));
+  assert.equal(buttons[0].callback_data, 'task:10:20');
+  assert.equal(buttons[1].callback_data, 'task:10:21');
+  assert.match(buttons[1].text, /🔴 Perdida/);
+  assert.equal(env.canvas.submissions, 0);
+});
 test('picker is paginated and cannot select another students assignment', async () => {
   const env = await setup(), user = env.store.state.users['111'];
   for (let i = 21; i < 36; i++) user.tasks[`10:${i}`] = { ...structuredClone(user.tasks['10:20']), data: { ...task, id: i } };

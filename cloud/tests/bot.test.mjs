@@ -166,10 +166,36 @@ test('all cached task commands agree with the Python implementation', async () =
     a.submitted = i === 2; a.excused = i === 3;
     user.tasks[`10:${a.id}`] = { data: a, first_seen_at: now, reminders: {}, revision: 0 };
   }
-  for (const command of ['hoy', 'manana', 'semana', 'pendientes', 'atrasadas', 'ultimas', 'asignaturas', 'resumen']) {
+  for (const command of ['hoy', 'manana', 'semana', 'pendientes', 'perdidas', 'atrasadas', 'ultimas', 'asignaturas', 'resumen']) {
     const expected = python("import sys,json; from datetime import datetime; from src.commands import render_command; from src.config import Config; i=json.load(sys.stdin); c=Config('https://medac.instructure.com','synthetic','synthetic'); print(json.dumps(render_command(i['command'],i['user'],c,datetime.fromisoformat(i['now'].replace('Z','+00:00'))),ensure_ascii=False))", { command, user, now });
     assert.deepEqual(render(command, user, config, now, messages), expected, command);
   }
+});
+
+test('lost deadlines are excluded from pending counts and reclassify without a refresh', () => {
+  const now = '2026-10-08T12:00:00Z', user = { token: 'SYNTHETIC', initialized: true, courses: [{ id: 10, name: 'Interfaces' }], tasks: {} };
+  const rows = [
+    { ...assignment(1), name: 'Perdida sin entrega', due_at: '2026-10-08T11:59:59Z' },
+    { ...assignment(2), name: 'Vence ahora', due_at: now },
+    { ...assignment(3), name: 'Sin fecha', due_at: null },
+    { ...assignment(4), name: 'Ya entregada', due_at: '2026-10-07T12:00:00Z', submitted: true },
+    { ...assignment(5), name: 'Exenta', due_at: '2026-10-07T12:00:00Z', excused: true },
+    { ...assignment(6), name: 'Sin entrega requerida', due_at: '2026-10-07T12:00:00Z', requires_submission: false },
+  ];
+  for (const data of rows) user.tasks[`10:${data.id}`] = { data, first_seen_at: now };
+  const output = command => render(command, user, config, now, messages).join('\n');
+  assert.doesNotMatch(output('pendientes'), /Perdida sin entrega/);
+  assert.match(output('pendientes'), /Vence ahora/); assert.match(output('pendientes'), /Sin fecha/);
+  assert.match(output('perdidas'), /TAREAS PERDIDAS<\/b> · 1/); assert.match(output('perdidas'), /🔴 Perdida/);
+  assert.doesNotMatch(output('perdidas'), /Vence ahora|Sin fecha|Ya entregada|Exenta|Sin entrega requerida/);
+  assert.equal(output('atrasadas'), output('perdidas'));
+  assert.match(output('asignaturas'), /Pendientes: 2\n🔴 Perdidas: 1/);
+  const later = render('resumen', user, config, '2026-10-08T12:00:01Z', messages).join('\n');
+  assert.match(later, /Total pendientes: 1/); assert.match(later, /Perdidas: 2/);
+  rows[0].due_at = '2026-10-09T12:00:00Z';
+  assert.match(output('pendientes'), /Perdida sin entrega/);
+  assert.match(output('resumen'), /Made by; AB Solutions/);
+  assert.match(messages.help, /Made by; AB Solutions/); assert.match(messages.start, /Made by; AB Solutions/);
 });
 test('messages are packed without cutting HTML and safe links stay in Canvas', () => {
   assert.equal(pack(['a'.repeat(2000), 'b'.repeat(2000)]).length, 2);

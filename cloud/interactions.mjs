@@ -1,18 +1,20 @@
-import { dateLabel, escape, ignored, pack, render } from './commands.mjs';
+import { actionable, dateLabel, escape, ignored, lost, pack, render } from './commands.mjs';
 import { CanvasError } from './canvas.mjs';
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const nonce = () => crypto.randomUUID().replaceAll('-', '');
 const sameAccount = (user, job) => user?.token === job.token && user.connected_at === job.connected_at && !user.disabled && (!user.onboarding || job.kind === 'refresh');
-const activeTasks = user => {
+const activeTasks = (user, now) => {
   const courses = new Set((user.courses || []).map(c => c.id));
+  const rank = a => actionable(a, now) ? 0 : lost(a, now) ? 1 : 2;
   return Object.values(user.tasks || {}).filter(r => !r.deleted && !r.ignored && !ignored(r.data) && courses.has(r.data.course_id) && r.data.requires_submission)
-    .map(r => r.data).sort((a, b) => Number(a.submitted) - Number(b.submitted) || (Date.parse(a.due_at) || Infinity) - (Date.parse(b.due_at) || Infinity));
+    .map(r => r.data).sort((a, b) => rank(a) - rank(b) || (Date.parse(a.due_at) || Infinity) - (Date.parse(b.due_at) || Infinity));
 };
 export function menu() {
   return { inline_keyboard: [
     [{ text: '📚 Resumen', callback_data: 'cmd:resumen:1' }, { text: '📝 Pendientes', callback_data: 'cmd:pendientes:1' }],
     [{ text: '📅 Hoy', callback_data: 'cmd:hoy:1' }, { text: '📆 Esta semana', callback_data: 'cmd:semana:1' }],
+    [{ text: '🔴 Perdidas', callback_data: 'cmd:perdidas:1' }, { text: '🆕 Últimas', callback_data: 'cmd:ultimas:1' }],
     [{ text: '🔄 Actualizar', callback_data: 'cmd:actualizar:1' }, { text: '📤 Entregar tarea', callback_data: 'list:1' }],
     [{ text: '📚 Asignaturas', callback_data: 'cmd:asignaturas:1' }, { text: '❓ Ayuda', callback_data: 'cmd:ayuda:1' }],
   ] };
@@ -22,7 +24,7 @@ export function normalizeUpdate(update) {
   if (!cb) return update.message || {};
   const value = typeof cb.data === 'string' ? cb.data : '';
   let text = '/boton_desconocido', match;
-  if ((match = value.match(/^cmd:(resumen|pendientes|hoy|manana|semana|atrasadas|ultimas|asignaturas|ayuda|estado|actualizar):([1-9]\d{0,4})$/))) text = `/${match[1]} ${match[2]}`;
+  if ((match = value.match(/^cmd:(resumen|pendientes|hoy|manana|semana|perdidas|atrasadas|ultimas|asignaturas|ayuda|estado|actualizar):([1-9]\d{0,4})$/))) text = `/${match[1]} ${match[2]}`;
   else if ((match = value.match(/^list:([1-9]\d{0,4})$/))) text = `/entregar ${match[1]}`;
   else if ((match = value.match(/^task:(\d{1,16}):(\d{1,16})$/))) text = `/tarea ${match[1]}:${match[2]}`;
   else if ((match = value.match(/^(confirm|cancel):([a-f0-9]{32})$/))) text = `/${match[1] === 'confirm' ? 'confirmar' : 'cancelar_entrega'} ${match[2]}`;
@@ -92,9 +94,9 @@ export class Actions {
       }
       if (user.delivery?.stage === 'processing') { reply('📤 Tu entrega está en curso. Si pasan dos minutos sin confirmación, comprueba la tarea en Canvas antes de volver a entregarla.'); return; }
       if (command === '/entregar') {
-        const tasks = activeTasks(user), total = Math.max(1, Math.ceil(tasks.length / 8));
+        const tasks = activeTasks(user, now), total = Math.max(1, Math.ceil(tasks.length / 8));
         const page = Math.min(total, Math.max(1, Number(argument) || 1));
-        const rows = tasks.slice((page - 1) * 8, page * 8).map(a => [{ text: `${a.submitted ? '✅' : '📝'} ${a.course_name} · ${a.name}`.slice(0, 100), callback_data: `task:${a.course_id}:${a.id}` }]);
+        const rows = tasks.slice((page - 1) * 8, page * 8).map(a => [{ text: `${a.submitted ? '✅' : a.excused ? '⚪ Exenta ·' : lost(a, now) ? '🔴 Perdida ·' : '📝'} ${a.course_name} · ${a.name}`.slice(0, 100), callback_data: `task:${a.course_id}:${a.id}` }]);
         const nav = [];
         if (page > 1) nav.push({ text: '⬅️ Anterior', callback_data: `list:${page - 1}` });
         if (page < total) nav.push({ text: 'Siguiente ➡️', callback_data: `list:${page + 1}` });

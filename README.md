@@ -22,10 +22,11 @@ El código está publicado en [ItzAbra26/canvas-telegram-assistant](https://gith
 | `/hoy` | Tareas con vencimiento hoy y su estado, incluidas las entregadas |
 | `/manana` | Tareas con vencimiento mañana y su estado |
 | `/semana` | Vencimientos de hoy y los seis días siguientes |
-| `/pendientes` | Todas las pendientes, ordenadas; las que no tienen fecha aparecen al final |
-| `/atrasadas` | Pendientes cuyo plazo ya pasó |
+| `/pendientes` | Sin entregar y con plazo vigente, ordenadas; las que no tienen fecha aparecen al final |
+| `/perdidas` | Tareas cuyo plazo ya pasó y siguen sin entregar |
+| `/atrasadas` | Alias de `/perdidas`, para conservar los comandos y botones antiguos |
 | `/ultimas` | Tareas creadas o detectadas en los últimos siete días |
-| `/asignaturas` | Cursos activos y número de pendientes por curso |
+| `/asignaturas` | Cursos activos y números separados de pendientes y perdidas por curso |
 | `/resumen` | Urgentes, esta semana, más adelante, sin fecha y próxima entrega |
 | `/actualizar` | Consulta Canvas ahora y devuelve el resumen actualizado, con un minuto entre solicitudes |
 | `/entregar` | Selecciona una tarea, recibe un documento y pide confirmar antes de entregarlo |
@@ -42,7 +43,7 @@ También envía avisos de tareas nuevas; cambios de fecha, descripción, puntos,
 
 Los textos usan HTML de Telegram, escapan títulos/descripciones y se reparten en mensajes de hasta 3.500 caracteres sin cortar etiquetas. La descripción HTML de Canvas se limpia y se abrevia en los avisos. La descripción completa permanece en el estado cifrado y en Canvas.
 
-Para que las listas sean rápidas y legibles, el webhook muestra **8 tareas por página**. Si hay más, indica cómo continuar: por ejemplo, `/pendientes 2`, `/atrasadas 2` o `/ultimas 2`. Puedes consultar todas las páginas; no se descartan tareas.
+Para que las listas sean rápidas y legibles, el webhook muestra **8 tareas por página**. Si hay más, indica cómo continuar: por ejemplo, `/pendientes 2`, `/perdidas 2` o `/ultimas 2`. Puedes consultar todas las páginas; no se descartan tareas.
 
 ### Botones, actualización inmediata y entrega de archivos
 
@@ -380,3 +381,11 @@ El límite inicial es `MAX_USERS=15`; para esta práctica conserva ese valor en 
 `src/ai.py` define una interfaz para resumir, explicar y estimar duración. La implementación base devuelve texto de la tarea y no inventa dificultad ni tiempo. El bot no llama a un proveedor de IA, no necesita una clave de IA y no envía tareas a uno.
 
 Para pasar del modo de prueba al uso multiusuario habitual, será necesario implementar autorización OAuth con una Developer Key del centro, callback HTTPS, vinculación segura con Telegram y renovación de access tokens mediante refresh tokens. La capa de Canvas acepta un bearer token; el almacenamiento, la lógica de tareas y los avisos pueden reutilizarse. `TEST_MODE=false` desactiva tanto el registro manual como la consulta de estas cuentas de prueba; **no activa una implementación OAuth inexistente**.
+
+## Clasificación y firma
+
+Las tareas cuyo plazo ya pasó y siguen sin entregar aparecen como **🔴 Perdida** en listas y alertas. Se consultan con el botón **Perdidas** o `/perdidas`; quedan fuera de `/pendientes`, del total de pendientes y del número de urgentes. El resumen y las asignaturas muestran el contador de perdidas por separado. Una tarea sin fecha sigue pendiente; una entregada o exenta nunca se considera perdida. El estado se calcula al consultar el bot, aunque todavía no haya llegado la revisión horaria.
+
+«Perdida» es la etiqueta del bot para un plazo vencido sin entrega; no modifica la calificación ni cierra la tarea en Canvas. Si el profesor amplía la fecha vuelve a pendientes tras actualizar. Si Canvas permite entregar fuera de plazo, sigue disponible en el selector de archivos, identificada como perdida.
+
+La firma **Made by; AB Solutions** aparece en `/start`, `/ayuda` y `/resumen`.

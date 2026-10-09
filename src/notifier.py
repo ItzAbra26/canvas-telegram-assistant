@@ -38,7 +38,7 @@ def task_block(a: Assignment, config: Config, now: datetime, description: bool =
         if a.excused
         else "ℹ️ Sin entrega requerida"
         if not a.requires_submission
-        else "🔴 Atrasada"
+        else "🔴 Perdida"
         if a.overdue(now)
         else "🟠 Pendiente"
     )
@@ -182,12 +182,13 @@ def reconcile(state: State, uid: str, snapshot: Snapshot, config: Config, now: d
         sync_error=None,
     )
     if baseline and not config.initial_notifications:
-        count = sum(a.pending for a in snapshot.assignments)
+        count = sum(a.pending_at(now) for a in snapshot.assignments)
+        lost = sum(a.overdue(now) for a in snapshot.assignments)
         enqueue(
             state,
             f"u{uid}:baseline",
             int(uid),
-            f"📚 <b>Primera sincronización completada</b>\n{len(snapshot.courses)} asignaturas · {count} tareas pendientes.\n"
+            f"📚 <b>Primera sincronización completada</b>\n{len(snapshot.courses)} asignaturas · {count} tareas pendientes · {lost} perdidas.\n"
             "He guardado las tareas existentes. Desde ahora avisaré de las nuevas y sus cambios. Usa /resumen.",
         )
 

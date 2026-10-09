@@ -8,6 +8,8 @@ from src.notifier import task_block
 from src.telegram_bot import COMMANDS
 from src.utils import date_label, e, parse_date
 
+SIGNATURE = "<i>Made by; AB Solutions</i>"
+
 PRIVACY = (
     "🔐 <b>Privacidad · modo de prueba</b>\n\n"
     "Enviar tu token autoriza a esta práctica a consultar tus cursos, tareas y estado de entrega "
@@ -46,13 +48,17 @@ def start_text(config: Config) -> str:
             else "⏱️ En GitHub Actions el registro y los comandos se procesan en la siguiente revisión "
             "(aproximadamente 15 minutos; puede haber retrasos).\n\n"
         )
-        + "Envía tu token para continuar, o /cancelar para salir."
+        + "Envía tu token para continuar, o /cancelar para salir.\n\n"
+        + SIGNATURE
     )
 
 
 def help_text() -> str:
-    return "🤖 <b>Comandos</b>\n\n" + "\n".join(
-        f"/{command} — {text}" for command, text in COMMANDS.items()
+    return (
+        "🤖 <b>Comandos</b>\n\n"
+        + "\n".join(f"/{command} — {text}" for command, text in COMMANDS.items())
+        + "\n\n"
+        + SIGNATURE
     )
 
 
@@ -100,7 +106,8 @@ def render_command(command: str, user: dict[str, Any], config: Config, now: date
     if not user.get("token"):
         return ["Primero conecta tu propia cuenta con /start."]
     tasks = assignments_for(user)
-    pending = sorted_tasks([a for a in tasks if a.pending])
+    pending = sorted_tasks([a for a in tasks if a.pending_at(now)])
+    lost = sorted_tasks([a for a in tasks if a.overdue(now)])
     blocks = []
     if user.get("last_sync"):
         blocks.append(f"🕒 Última revisión: {date_label(user['last_sync'], config.timezone)}")
@@ -127,7 +134,7 @@ def render_command(command: str, user: dict[str, Any], config: Config, now: date
             bool(a.due_at and parse_date(a.due_at) > now + timedelta(days=7)) for a in pending
         )
         undated = sum(a.due_at is None for a in pending)
-        text = f"📚 <b>RESUMEN</b>\n\n🔴 Urgentes: {urgent}\n🟠 Esta semana: {week}\n🟢 Más adelante: {later}\n⚪ Sin fecha: {undated}\n\n<b>Total pendientes: {len(pending)}</b>"
+        text = f"📚 <b>RESUMEN</b>\n\n🔴 Urgentes: {urgent}\n🟠 Esta semana: {week}\n🟢 Más adelante: {later}\n⚪ Sin fecha: {undated}\n\n<b>Total pendientes: {len(pending)}</b>\n🔴 Perdidas: {len(lost)}"
         upcoming = next((a for a in pending if a.due_at and parse_date(a.due_at) >= now), None)
         if upcoming:
             local_due = parse_date(upcoming.due_at).astimezone(ZoneInfo(config.timezone))
@@ -142,15 +149,18 @@ def render_command(command: str, user: dict[str, Any], config: Config, now: date
             when = f"{label} · {local_due:%H:%M}" if delta in {0, 1} else label
             text += f"\n\n<b>Próxima entrega:</b>\n{e(upcoming.course_name, 120)}\n{e(upcoming.name, 180)}\n{when}"
         elif pending:
-            text += "\n\nNo hay próximas entregas con fecha futura. Revisa /atrasadas y las tareas sin fecha."
+            text += "\n\nNo hay próximas entregas con fecha futura. Revisa las tareas sin fecha en /pendientes."
         else:
             text += "\n\n✅ No tienes tareas pendientes."
-        return blocks + [text]
+        return blocks + [text + "\n\n" + SIGNATURE]
     if command == "asignaturas":
         blocks.append("📚 <b>ASIGNATURAS ACTIVAS</b>")
         for course in user.get("courses", []):
             count = sum(a.course_id == course["id"] for a in pending)
-            blocks.append(f"📚 {e(course['name'], 180)}\n📝 Pendientes: {count}")
+            missed = sum(a.course_id == course["id"] for a in lost)
+            blocks.append(
+                f"📚 {e(course['name'], 180)}\n📝 Pendientes: {count}\n🔴 Perdidas: {missed}"
+            )
         if not user.get("courses"):
             blocks.append("No hay cursos activos visibles en Canvas.")
         return blocks
@@ -169,8 +179,8 @@ def render_command(command: str, user: dict[str, Any], config: Config, now: date
         selected = sorted_tasks(selected)
     elif command == "pendientes":
         selected = pending
-    elif command == "atrasadas":
-        selected = [a for a in pending if a.overdue(now)]
+    elif command in {"perdidas", "atrasadas"}:
+        selected = lost
     elif command == "ultimas":
 
         def recent_date(a: Assignment) -> datetime:
@@ -189,7 +199,8 @@ def render_command(command: str, user: dict[str, Any], config: Config, now: date
         "manana": "ENTREGAS DE MAÑANA",
         "semana": "PRÓXIMOS 7 DÍAS",
         "pendientes": "TAREAS PENDIENTES",
-        "atrasadas": "TAREAS ATRASADAS",
+        "perdidas": "TAREAS PERDIDAS",
+        "atrasadas": "TAREAS PERDIDAS",
         "ultimas": "TAREAS RECIENTES",
     }[command]
     blocks.append(f"📋 <b>{title}</b> · {len(selected)}")

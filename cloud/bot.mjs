@@ -1,5 +1,5 @@
 import { open, seal, validateState } from './codec.mjs';
-import { ignored, pack, pending, render } from './commands.mjs';
+import { actionable, ignored, lost, pack, render } from './commands.mjs';
 import { Actions, normalizeUpdate, menu } from './interactions.mjs';
 
 export class StateStore {
@@ -215,7 +215,7 @@ export class ImmediateBot {
         tasks[`${assignment.course_id}:${assignment.id}`] = { data: assignment, revision: 0, first_seen_at: now, reminders, remaining, deleted: false, missing_count: 0 };
       }
       Object.assign(user, { courses: snapshot.courses, tasks, initialized: true, last_sync: now, sync_error: null });
-      enqueue(state, `u${uid}:baseline`, Number(uid), `📚 <b>Primera sincronización completada</b>\n${snapshot.courses.length} asignaturas · ${snapshot.assignments.filter(pending).length} tareas pendientes.\nHe guardado las tareas existentes. Desde ahora avisaré de las nuevas y sus cambios. Usa /resumen.`);
+      enqueue(state, `u${uid}:baseline`, Number(uid), `📚 <b>Primera sincronización completada</b>\n${snapshot.courses.length} asignaturas · ${snapshot.assignments.filter(a => actionable(a, now)).length} tareas pendientes · ${snapshot.assignments.filter(a => lost(a, now)).length} perdidas.\nHe guardado las tareas existentes. Desde ahora avisaré de las nuevas y sus cambios. Usa /resumen.`);
     });
     await this.dispatch(`u${uid}:baseline`);
   }
