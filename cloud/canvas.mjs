@@ -1,3 +1,5 @@
+import { ignored } from './commands.mjs';
+
 export class CanvasError extends Error {
   constructor(status = 0, reason = 'network') { super('Canvas unavailable'); this.status = status; this.reason = reason; }
 }
@@ -97,11 +99,12 @@ export class InitialCanvas {
   async snapshot() {
     const courses = await this.pages('courses', { enrollment_state: 'active', enrollment_type: 'student', 'state[]': 'available', per_page: '100' });
     if (courses.some(c => typeof c.name !== 'string') || new Set(courses.map(c => c.id)).size !== courses.length) throw new CanvasError();
-    const assignments = [];
+    const assignments = [], excluded = {};
     for (const course of courses) {
       const rows = await this.pages(`courses/${course.id}/assignments`, { 'include[]': 'submission', override_assignment_dates: 'true', per_page: '100' });
       for (const raw of rows) {
         if (raw.published === false) continue;
+        if (ignored(raw)) { excluded[`${course.id}:${raw.id}`] = raw.name; continue; }
         let submission = raw.submission;
         if (!submission?.workflow_state) submission = (await this.get(`${this.base}/api/v1/courses/${course.id}/assignments/${raw.id}/submissions/self`)).body;
         if (!['unsubmitted', 'submitted', 'pending_review', 'graded'].includes(submission?.workflow_state) || typeof raw.name !== 'string' || !Array.isArray(raw.submission_types) || !['due_at', 'description', 'points_possible'].every(k => k in raw)) throw new CanvasError();
@@ -119,6 +122,6 @@ export class InitialCanvas {
       }
     }
     if (new Set(assignments.map(a => `${a.course_id}:${a.id}`)).size !== assignments.length) throw new CanvasError();
-    return { courses: courses.map(c => ({ id: c.id, name: c.name })), assignments };
+    return { courses: courses.map(c => ({ id: c.id, name: c.name })), assignments, ignored: excluded };
   }
 }

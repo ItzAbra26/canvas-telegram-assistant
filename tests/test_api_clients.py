@@ -57,6 +57,17 @@ def test_missing_include_submission_fallback(raw_task):
 
 
 @responses.activate
+def test_scorm_is_ignored_without_requesting_its_submission(raw_task):
+    responses.get(BASE + "/courses", json=[{"id": 10, "name": "Curso"}])
+    responses.get(
+        BASE + "/courses/10/assignments", json=[raw_task, {"id": 2, "name": "Tema 3 SCORM"}]
+    )
+    result = CanvasClient("https://canvas.example.edu", "test").snapshot({})
+    assert len(result.assignments) == 1 and result.ignored == {"10:2": "Tema 3 SCORM"}
+    assert len(responses.calls) == 2
+
+
+@responses.activate
 def test_missing_assignment_confirmed_individually(raw_task):
     previous = {
         "10:1": {

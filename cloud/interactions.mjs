@@ -1,4 +1,4 @@
-import { dateLabel, escape, pack, render } from './commands.mjs';
+import { dateLabel, escape, ignored, pack, render } from './commands.mjs';
 import { CanvasError } from './canvas.mjs';
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -6,7 +6,7 @@ const nonce = () => crypto.randomUUID().replaceAll('-', '');
 const sameAccount = (user, job) => user?.token === job.token && user.connected_at === job.connected_at && !user.disabled && (!user.onboarding || job.kind === 'refresh');
 const activeTasks = user => {
   const courses = new Set((user.courses || []).map(c => c.id));
-  return Object.values(user.tasks || {}).filter(r => !r.deleted && courses.has(r.data.course_id) && r.data.requires_submission)
+  return Object.values(user.tasks || {}).filter(r => !r.deleted && !r.ignored && !ignored(r.data) && courses.has(r.data.course_id) && r.data.requires_submission)
     .map(r => r.data).sort((a, b) => Number(a.submitted) - Number(b.submitted) || (Date.parse(a.due_at) || Infinity) - (Date.parse(b.due_at) || Infinity));
 };
 export function menu() {
@@ -37,11 +37,13 @@ function fileInfo(raw) {
   return { file_id: raw.file_id, name: raw.file_name, size: raw.file_size, mime: typeof raw.mime_type === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(raw.mime_type) ? raw.mime_type : 'application/octet-stream' };
 }
 function validateAssignment(raw, file = null) {
+  if (ignored(raw || {})) throw new CanvasError(400, 'ignored');
   if (!raw || !Number.isSafeInteger(raw.id) || typeof raw.name !== 'string' || !Array.isArray(raw.submission_types) || !raw.submission_types.includes('online_upload')) throw new CanvasError(400, 'unsupported');
   if (raw.locked_for_user === true || raw.published === false || raw.submission?.excused) throw new CanvasError(403, 'locked');
   if (file && raw.allowed_extensions?.length && !raw.allowed_extensions.map(x => String(x).toLowerCase().replace(/^\./, '')).includes(file.name.split('.').at(-1).toLowerCase())) throw new CanvasError(400, 'extension');
 }
-const errorText = error => error.reason === 'unsupported' ? 'Esta tarea no admite archivos. Ábrela en Canvas para entregarla con el método indicado.'
+const errorText = error => error.reason === 'ignored' ? 'Las tareas SCORM están excluidas del bot.'
+  : error.reason === 'unsupported' ? 'Esta tarea no admite archivos. Ábrela en Canvas para entregarla con el método indicado.'
   : error.reason === 'locked' ? 'Canvas indica que la tarea está cerrada o no disponible para entregar.'
   : error.reason === 'extension' ? 'Ese formato no está permitido para esta tarea. Revisa los formatos admitidos.'
   : error.status === 401 ? 'Canvas no acepta tu token. Vuelve a conectar con /start.'
@@ -58,7 +60,7 @@ export class Actions {
     const command = rawCommand.toLowerCase().split('@')[0];
     let assignment = null, selectionError = null;
     const key = /^\d{1,16}:\d{1,16}$/.test(argument || '') ? argument : null;
-    if (this.config.test_mode && command === '/tarea' && key && prior.token && !prior.disabled && !prior.onboarding && prior.tasks?.[key] && !prior.tasks[key].deleted && (prior.courses || []).some(c => c.id === prior.tasks[key].data.course_id) && prior.delivery?.stage !== 'processing') {
+    if (this.config.test_mode && command === '/tarea' && key && prior.token && !prior.disabled && !prior.onboarding && prior.tasks?.[key] && !prior.tasks[key].deleted && !prior.tasks[key].ignored && !ignored(prior.tasks[key].data) && (prior.courses || []).some(c => c.id === prior.tasks[key].data.course_id) && prior.delivery?.stage !== 'processing') {
       try { assignment = await this.bot.canvasFactory(prior.token).assignment(...key.split(':').map(Number)); validateAssignment(assignment); }
       catch (error) { assignment = null; selectionError = error; }
     }
@@ -145,11 +147,13 @@ export class Actions {
       user.refresh.stage = error ? 'failed' : 'done';
       if (error) { user.sync_error = error.status || 'network'; queue(state, prefix, job.uid, '⚠️ No pude terminar la actualización. Tus datos anteriores se conservan. ' + errorText(error)); return; }
       const baseline = !user.initialized;
+      for (const [key, name] of Object.entries(snapshot.ignored || {})) if (user.tasks[key]) { user.tasks[key].ignored = true; user.tasks[key].data.name = name; }
       for (const a of snapshot.assignments) {
+        if (ignored(a)) continue;
         const key = `${a.course_id}:${a.id}`, record = user.tasks[key];
         if (record) {
           record.hourly_data ||= structuredClone(record.data);
-          record.data = a; record.deleted = false;
+          record.data = a; record.deleted = false; delete record.ignored;
         } else {
           const remaining = a.due_at ? (Date.parse(a.due_at) - Date.parse(now)) / 1000 : null;
           const reminders = {};

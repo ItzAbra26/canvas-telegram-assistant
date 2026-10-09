@@ -1,3 +1,4 @@
+import copy
 import json
 from dataclasses import replace
 
@@ -5,12 +6,110 @@ import pytest
 import responses
 
 from src.demo import demo_update
-from src.errors import StorageError
-from src.remote_store import RemoteStore
+from src.errors import StorageConflict, StorageError
+from src.remote_store import RemoteStore, _rebase, _replace_in_place
 from src.service import BotService
 from src.storage import EncryptedCodec
 
 URL = "https://example.supabase.co/functions/v1/canvas-telegram-immediate"
+
+
+def test_rebase_preserves_buttons_and_sync_without_overwriting_each_other(state):
+    local, remote = copy.deepcopy(state), copy.deepcopy(state)
+    local["users"]["111"]["last_sync"] = "2026-10-09T12:00:00Z"
+    remote["webhook_updates"] = {"500": "2026-10-09T12:00:01Z"}
+    remote["offset"] = 501
+    remote["users"]["111"]["delivery"] = {"stage": "ready"}
+    remote["outbox"]["update:500"] = {"status": "sent", "chat_id": 111}
+    merged = _rebase(state, local, remote)
+    assert merged["users"]["111"]["last_sync"] == local["users"]["111"]["last_sync"]
+    assert merged["users"]["111"]["delivery"] == {"stage": "ready"}
+    assert merged["offset"] == 501 and merged["outbox"]["update:500"]["status"] == "sent"
+
+
+@pytest.mark.parametrize("change", ["disconnect", "token", "canvas_user_id", "connected_at"])
+def test_rebase_never_applies_a_snapshot_to_a_different_connection(state, change):
+    local, remote = copy.deepcopy(state), copy.deepcopy(state)
+    local["users"]["111"]["last_sync"] = "2026-10-09T12:00:00Z"
+    if change == "disconnect":
+        del remote["users"]["111"]
+    else:
+        remote["users"]["111"][change] = "different"
+    with pytest.raises(StorageConflict):
+        _rebase(state, local, remote)
+
+
+def test_rebase_cannot_claim_an_event_already_claimed_by_another_process(state):
+    state["outbox"]["event"] = {"chat_id": 111, "text": "Hello", "status": "pending"}
+    local, remote = copy.deepcopy(state), copy.deepcopy(state)
+    local["outbox"]["event"]["status"] = remote["outbox"]["event"]["status"] = "sending"
+    with pytest.raises(StorageConflict):
+        _rebase(state, local, remote)
+
+
+def test_rebase_rejects_conflicting_updates_to_same_task(state):
+    local, remote = copy.deepcopy(state), copy.deepcopy(state)
+    state["users"]["111"]["last_sync"] = "old"
+    local["users"]["111"]["last_sync"] = "checker"
+    remote["users"]["111"]["last_sync"] = "manual-refresh"
+    with pytest.raises(StorageConflict):
+        _rebase(state, local, remote)
+
+
+@responses.activate
+def test_atomic_snapshot_and_rebase_save_keep_notifier_references(config, state):
+    from src.partitions import partition_state
+
+    codec = EncryptedCodec(config.encryption_key)
+    state["outbox"]["event"] = {"chat_id": 111, "text": "Hello", "status": "pending"}
+    remote = copy.deepcopy(state)
+    remote["offset"] = 7
+    remote["users"]["111"]["delivery"] = {"stage": "ready"}
+
+    def snapshot(value, version):
+        parts = {
+            key: codec.encode(part).decode()
+            for key, part in partition_state(value).items()
+            if not key.endswith(":view")
+        }
+        return {
+            "version": version,
+            "format": "partitioned",
+            "parts": list(parts),
+            "ciphertexts": parts,
+        }
+
+    replies = [snapshot(state, 1), None, snapshot(remote, 2), {"version": 3}]
+    calls = []
+
+    def callback(request):
+        calls.append(json.loads(request.body))
+        value = replies.pop(0)
+        return (
+            409 if value is None else 200,
+            {"Content-Type": "application/json"},
+            json.dumps(value or {}),
+        )
+
+    responses.add_callback(responses.POST, URL, callback=callback)
+    store = RemoteStore(URL, "synthetic_key", config.encryption_key)
+    loaded = store.load()
+    assert len(calls) == 1
+    event = loaded["outbox"]["event"]
+    event["status"] = "sending"
+    store.save(loaded)
+    assert store.version == 3 and loaded["offset"] == 7
+    assert loaded["outbox"]["event"] is event
+    assert loaded["users"]["111"]["delivery"]["stage"] == "ready"
+    assert [call["action"] for call in calls] == ["load", "save", "load", "save"]
+
+
+def test_replace_in_place_keeps_mutable_references(state):
+    user = state["users"]["111"]
+    changed = copy.deepcopy(state)
+    changed["users"]["111"]["last_sync"] = "synthetic"
+    _replace_in_place(state, changed)
+    assert state["users"]["111"] is user and user["last_sync"] == "synthetic"
 
 
 @responses.activate

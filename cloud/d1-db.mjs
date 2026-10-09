@@ -18,6 +18,13 @@ export class D1DB {
     if (!rows.results.length) throw new Error('Missing checkpoint');
     return { version: rows.results[0].revision, format: 'partitioned', parts: rows.results.map(r => r.id).filter(Boolean) };
   }
+  async snapshot() {
+    // One SQL read gives Actions a consistent snapshot even while buttons are used.
+    const rows = await this.db.prepare('SELECT c.revision, p.id, p.ciphertext FROM bot_checkpoint c LEFT JOIN bot_parts p ON p.id NOT LIKE ? WHERE c.id=1').bind('%:view').all();
+    if (!rows.results.length) throw new Error('Missing checkpoint');
+    const ciphertexts = Object.fromEntries(rows.results.filter(row => row.id).map(row => [row.id,row.ciphertext]));
+    return {version:rows.results[0].revision,format:'partitioned',parts:Object.keys(ciphertexts),ciphertexts};
+  }
   async read(version, id) {
     const row = await this.db.prepare('SELECT c.revision, p.ciphertext FROM bot_checkpoint c LEFT JOIN bot_parts p ON p.id=? WHERE c.id=1').bind(id).first();
     if (!row || row.revision !== version) throw new Conflict();

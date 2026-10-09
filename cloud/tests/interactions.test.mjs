@@ -140,6 +140,24 @@ test('failed refresh retains every task', async () => {
   assert.equal(env.store.state.users['111'].refresh.stage, 'failed');
 });
 
+test('SCORM is absent from summary, task picker, notices and submission selection', async () => {
+  const env = await setup(); env.store.state.users['111'].tasks['10:20'].data.name = 'Unidad sCoRm';
+  await env.bot.receive(msg(1,'/resumen')); assert.match(env.telegram.sent.at(-1).text,/Total pendientes: 0/);
+  await env.bot.receive(cb(2,'list:1')); assert.match(env.telegram.sent.at(-1).text,/No hay tareas/);
+  await env.bot.receive(cb(3,'task:10:20')); assert.equal(env.canvas.reads,0);
+  env.store.state.outbox['u111:task:10:20:new'] = {status:'pending',chat_id:111,text:'Old notice'};
+  const before = env.telegram.sent.length; await env.bot.dispatch('u111:task:10:20:new');
+  assert.equal(env.telegram.sent.length,before);
+  assert.equal(env.store.state.outbox['u111:task:10:20:new'].status,'cancelled');
+});
+
+test('Canvas skips SCORM even when its submission data is missing', async () => {
+  const client = new InitialCanvas(config.canvas_base_url,'SYNTHETIC_PRIVATE',x=>x,async url => url.includes('/assignments?') ? Response.json([{id:20,name:'SCORM unidad 1'}]) : Response.json([{id:10,name:'Interfaces'}]));
+  const snapshot = await client.snapshot();
+  assert.deepEqual(snapshot.assignments,[]);
+  assert.deepEqual(snapshot.ignored,{'10:20':'SCORM unidad 1'});
+});
+
 test('pending token renewal still allows refreshing the previously connected account', async () => {
   const env = await setup(); env.store.state.users['111'].onboarding = true;
   const job = await env.bot.receive(msg(1,'/actualizar'));

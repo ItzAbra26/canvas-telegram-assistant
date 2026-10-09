@@ -3,7 +3,7 @@ from urllib.parse import urljoin, urlsplit
 
 from src.errors import APIError
 from src.http_client import HTTPClient
-from src.models import Assignment, Course, Snapshot
+from src.models import Assignment, Course, Snapshot, ignored_assignment
 
 
 class CanvasClient:
@@ -76,6 +76,7 @@ class CanvasClient:
             raise APIError("Canvas") from None
         assignments: list[Assignment] = []
         missing: set[str] = set()
+        ignored: dict[str, str] = {}
         for course in courses:
             raw_tasks = self._pages(
                 f"courses/{course.id}/assignments",
@@ -88,6 +89,11 @@ class CanvasClient:
             course_keys = set()
             for raw in raw_tasks:
                 if raw.get("published") is False:
+                    continue
+                if isinstance(raw.get("name"), str) and ignored_assignment(raw["name"]):
+                    key = f"{course.id}:{raw['id']}"
+                    ignored[key] = raw["name"]
+                    course_keys.add(key)
                     continue
                 if (
                     not isinstance(raw.get("submission"), dict)
@@ -111,6 +117,8 @@ class CanvasClient:
                     record["data"]["course_id"] != course.id
                     or key in course_keys
                     or record.get("deleted")
+                    or record.get("ignored")
+                    or ignored_assignment(record["data"]["name"])
                 ):
                     continue
                 # Confirmación individual: una lista truncada no basta para borrar una tarea.
@@ -124,6 +132,9 @@ class CanvasClient:
                 elif response.status_code == 200:
                     try:
                         raw = response.json()
+                        if isinstance(raw.get("name"), str) and ignored_assignment(raw["name"]):
+                            ignored[key] = raw["name"]
+                            continue
                         if not isinstance(raw.get("submission"), dict):
                             raw["submission"] = self.http.json(
                                 "GET",
@@ -136,4 +147,4 @@ class CanvasClient:
                         raise APIError("Canvas") from None
                 else:
                     raise APIError("Canvas", response.status_code)
-        return Snapshot(courses, assignments, missing)
+        return Snapshot(courses, assignments, missing, ignored)

@@ -1,5 +1,5 @@
 import { open, seal, validateState } from './codec.mjs';
-import { pack, pending, render } from './commands.mjs';
+import { ignored, pack, pending, render } from './commands.mjs';
 import { Actions, normalizeUpdate, menu } from './interactions.mjs';
 
 export class StateStore {
@@ -91,6 +91,8 @@ export class ImmediateBot {
         event = null; // A failed CAS may retry after another process sent this event.
         const row = current.outbox[id];
         if (!row || row.status !== 'pending' || (row.not_before && Date.parse(row.not_before) > Date.now())) return false;
+        const match = id.match(/^u(\d+):task:(\d+:\d+):/), record = match && current.users[match[1]]?.tasks?.[match[2]];
+        if (record && (record.ignored || ignored(record.data))) { row.status = 'cancelled'; delete row.text; return; }
         row.status = 'sending'; row.started_at = new Date().toISOString(); event = structuredClone(row);
       });
       if (!event) continue;
@@ -206,6 +208,7 @@ export class ImmediateBot {
       if (!user || user.token !== token || user.connected_at !== connected_at || user.initialized) return false;
       const tasks = {};
       for (const assignment of snapshot.assignments) {
+        if (ignored(assignment)) continue;
         const remaining = assignment.due_at ? (Date.parse(assignment.due_at) - Date.parse(now)) / 1000 : null;
         const reminders = {};
         for (const [label, seconds] of [['7d', 604800], ['3d', 259200], ['24h', 86400], ['3h', 10800]]) if (remaining !== null && remaining <= seconds) reminders[label] = 'skipped_initial';

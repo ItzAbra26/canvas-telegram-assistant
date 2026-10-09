@@ -3,7 +3,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from src.config import Config
-from src.models import Assignment
+from src.models import Assignment, ignored_assignment
 from src.notifier import task_block
 from src.telegram_bot import COMMANDS
 from src.utils import date_label, e, parse_date
@@ -61,7 +61,10 @@ def assignments_for(user: dict[str, Any]) -> list[Assignment]:
     return [
         Assignment(**record["data"])
         for record in user.get("tasks", {}).values()
-        if not record.get("deleted") and record["data"]["course_id"] in active
+        if not record.get("deleted")
+        and not record.get("ignored")
+        and not ignored_assignment(record["data"]["name"])
+        and record["data"]["course_id"] in active
     ]
 
 

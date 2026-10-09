@@ -14,7 +14,8 @@ const formatter = (locale, options) => {
   if (!formatters.has(key)) formatters.set(key, new Intl.DateTimeFormat(locale, options));
   return formatters.get(key);
 };
-export const pending = a => a.requires_submission && !a.submitted && !a.excused;
+export const ignored = a => /scorm/i.test(a.name || '');
+export const pending = a => !ignored(a) && a.requires_submission && !a.submitted && !a.excused;
 export function day(value, zone = 'Europe/Madrid') {
   const parts = formatter('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value));
   const fields = Object.fromEntries(parts.map(p => [p.type, p.value]));
@@ -70,7 +71,7 @@ export function render(command, user, config, now, messages, page = 1) {
   }
   if (!user.token) return ['Primero conecta tu propia cuenta con /start.'];
   const active = new Set((user.courses || []).map(c => c.id));
-  const tasks = Object.values(user.tasks || {}).filter(r => !r.deleted && active.has(r.data.course_id)).map(r => r.data);
+  const tasks = Object.values(user.tasks || {}).filter(r => !r.deleted && !r.ignored && !ignored(r.data) && active.has(r.data.course_id)).map(r => r.data);
   const sort = rows => [...rows].sort((a, b) => (stamp(a.due_at) ?? Infinity) - (stamp(b.due_at) ?? Infinity) || a.course_name.localeCompare(b.course_name) || a.name.localeCompare(b.name));
   const todo = sort(tasks.filter(pending));
   const blocks = user.last_sync ? [`🕒 Última revisión: ${dateLabel(user.last_sync, config.timezone)}`] : [];

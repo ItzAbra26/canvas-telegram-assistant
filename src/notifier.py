@@ -1,11 +1,12 @@
 import hashlib
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
 from src.config import Config
 from src.errors import AmbiguousDelivery, RejectedDelivery
-from src.models import Assignment, Snapshot
+from src.models import Assignment, Snapshot, ignored_assignment
 from src.storage import State, Store
 from src.telegram_bot import TelegramBot
 from src.utils import date_label, e, pack_messages, parse_date, safe_link, time_left
@@ -55,9 +56,19 @@ def reconcile(state: State, uid: str, snapshot: Snapshot, config: Config, now: d
     user = state["users"][uid]
     baseline = not user.get("initialized", False)
     previous = user.setdefault("tasks", {})
-    current = {a.key: a for a in snapshot.assignments}
+    excluded = {
+        **snapshot.ignored,
+        **{a.key: a.name for a in snapshot.assignments if ignored_assignment(a.name)},
+    }
+    for key, name in excluded.items():
+        if key in previous:
+            previous[key]["ignored"] = True
+            previous[key]["data"]["name"] = name
+    current = {a.key: a for a in snapshot.assignments if not ignored_assignment(a.name)}
     for key, a in current.items():
         old = previous.get(key)
+        if old:
+            old.pop("ignored", None)
         remaining = (parse_date(a.due_at) - now).total_seconds() if a.due_at else None
         if old is None or old.pop("manual_unnotified", False):
             record = {
@@ -149,6 +160,8 @@ def reconcile(state: State, uid: str, snapshot: Snapshot, config: Config, now: d
         old.update(data=a.to_dict(), remaining=remaining, deleted=False, missing_count=0)
     for key in snapshot.missing:
         record = previous[key]
+        if record.get("ignored") or ignored_assignment(record["data"]["name"]):
+            continue
         record["missing_count"] = record.get("missing_count", 0) + 1
         if record["missing_count"] >= 2 and not record.get("deleted"):
             record["deleted"] = True
@@ -219,6 +232,14 @@ def dispatch(
         not_before = parse_date(event.get("not_before"))
         if not_before and now < not_before:
             continue
+        task_event = re.match(r"^u(\d+):task:(\d+:\d+):", event_id)
+        if task_event:
+            record = state["users"].get(task_event[1], {}).get("tasks", {}).get(task_event[2])
+            if record and (record.get("ignored") or ignored_assignment(record["data"]["name"])):
+                event["status"] = "cancelled"
+                event.pop("text", None)
+                store.save(state)
+                continue
         if event.get("kind") == "reminder":
             record = state["users"].get(event["uid"], {}).get("tasks", {}).get(event["task_key"])
             active_ids = {c["id"] for c in state["users"].get(event["uid"], {}).get("courses", [])}

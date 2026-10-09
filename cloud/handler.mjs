@@ -26,7 +26,7 @@ export function createHandler(db, messages, cleanHTML, fetcher = fetch, backgrou
       try { body = JSON.parse(raw); } catch { return new Response('Invalid JSON', { status: 400 }); }
       const telegram = new Telegram(config.telegram_token, fetcher);
       if (stateKey) {
-        if (body.action === 'load') return Response.json(db.partitioned ? await db.index() : await db.load());
+        if (body.action === 'load') return Response.json(db.partitioned ? await db.snapshot() : await db.load());
         if (body.action === 'read' && db.partitioned) {
           if (!Number.isSafeInteger(body.version) || !validPart(body.id)) return new Response('Invalid partition', {status:400});
           return Response.json(await db.read(body.version, body.id));

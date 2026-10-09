@@ -67,6 +67,10 @@ test('15 students stay isolated and command writes preserve full assignment desc
   await bot.receive({update_id:5,message:{message_id:5,text:'/resumen',chat:{id:1000,type:'private'},from:{id:1000,is_bot:false}}});
   assert.equal(sent.length,1);
   const after = await db.index();
+  const atomic = await db.snapshot();
+  assert.equal(atomic.version,after.version);
+  assert.deepEqual(Object.keys(atomic.ciphertexts).sort(),after.parts.sort());
+  assert.ok(atomic.parts.every(id=>!id.endsWith(':view')));
   assert.equal((await db.read(after.version,await hash('1000')+':full')).ciphertext,before.ciphertext);
   const restored = await restore(db);
   assert.equal(restored.users['1000'].tasks['10:1'].data.description,description);

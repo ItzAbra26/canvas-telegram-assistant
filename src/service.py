@@ -255,7 +255,8 @@ class BotService:
                     )
             self.store.save(state)
         connected = 0
-        for uid, user in list(state["users"].items()):
+        for uid in list(state["users"]):
+            user = state["users"].get(uid, {})
             if not user.get("token") or not self._allowed(int(uid)) or not self.config.test_mode:
                 continue
             if user.get("disabled"):

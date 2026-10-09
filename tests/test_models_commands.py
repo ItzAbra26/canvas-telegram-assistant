@@ -133,3 +133,36 @@ def test_links_only_canvas_https(config):
     assert "Abrir en Canvas" in safe_link(
         "https://canvas.example.edu/courses/1", config.canvas_base_url
     )
+
+
+def test_scorm_excluded_from_every_task_list_and_summary(state, task, config, now):
+    from dataclasses import replace
+
+    from src.commands import render_command
+    from src.models import Course, Snapshot
+    from src.notifier import reconcile
+
+    scorm = replace(task, name="Tema sCoRm")
+    reconcile(state, "111", Snapshot([Course(10, "Interfaces")], [scorm], set()), config, now)
+    # Include a legacy cached row too: exclusion must not depend on the next API call.
+    state["users"]["111"]["tasks"][scorm.key] = {
+        "data": scorm.to_dict(),
+        "revision": 0,
+        "reminders": {},
+        "first_seen_at": now.isoformat(),
+    }
+    for command in [
+        "hoy",
+        "manana",
+        "semana",
+        "pendientes",
+        "atrasadas",
+        "ultimas",
+        "resumen",
+        "asignaturas",
+    ]:
+        text = "\n".join(render_command(command, state["users"]["111"], config, now))
+        assert "sCoRm" not in text
+    assert "Total pendientes: 0" in "\n".join(
+        render_command("resumen", state["users"]["111"], config, now)
+    )

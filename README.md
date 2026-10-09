@@ -38,6 +38,8 @@ El código está publicado en [ItzAbra26/canvas-telegram-assistant](https://gith
 
 También envía avisos de tareas nuevas; cambios de fecha, descripción, puntos, nombre, entrega o exención; y tareas eliminadas o que dejan de ser visibles. Los recordatorios se programan al cruzar **7 días, 3 días, 24 horas y 3 horas** antes de la entrega.
 
+**SCORM está excluido:** cualquier tarea cuyo nombre contenga `SCORM`, sin distinguir mayúsculas, se omite de listas, resumen, contadores de pendientes, avisos, recordatorios y selector de entregas. También se aplica al historial ya guardado y cancela avisos de esas tareas que sigan pendientes. Una tarea renombrada a SCORM deja de contarse sin generar un aviso de eliminación. No modifica ni elimina nada en Canvas.
+
 Los textos usan HTML de Telegram, escapan títulos/descripciones y se reparten en mensajes de hasta 3.500 caracteres sin cortar etiquetas. La descripción HTML de Canvas se limpia y se abrevia en los avisos. La descripción completa permanece en el estado cifrado y en Canvas.
 
 Para que las listas sean rápidas y legibles, el webhook muestra **8 tareas por página**. Si hay más, indica cómo continuar: por ejemplo, `/pendientes 2`, `/atrasadas 2` o `/ultimas 2`. Puedes consultar todas las páginas; no se descartan tareas.
@@ -84,6 +86,8 @@ GitHub Actions cada hora → API oficial Canvas → cambios y avisos
 ```
 
 El estado contiene usuarios, tokens, cursos activos, versiones anteriores de cada tarea, primera detección, recordatorios, cola de envíos y último `update_id` procesado. Está indexado por el ID del remitente de Telegram, comprobado contra su chat privado. No se aceptan registros desde grupos ni mensajes reenviados.
+
+Actions lee todas las particiones cifradas en una única consulta coherente. Si se usa un botón mientras revisa Canvas, combina solamente cambios independientes y vuelve a guardar con la versión actual. Conserva los registros, las entregas pendientes y los mensajes del webhook. Si cambió la cuenta, se desconectó un alumno, ambos procesos modificaron el mismo dato o alguien reclamó el mismo envío, aborta y recarga: no aplica un snapshot a otra cuenta ni duplica un mensaje.
 
 **Elección:** D1, una base persistente gratuita compartida por el webhook y Actions. Guarda JSON comprimido y cifrado con Fernet en particiones: metadatos, datos y cola de cada alumno, historial completo y vista abreviada para comandos. Los identificadores de partición son hashes; tokens, IDs privados, cursos y tareas están dentro del cifrado. El comprobador Python reconstruye el historial completo; una respuesta rápida nunca reemplaza una descripción completa por su versión abreviada. La configuración de ejecución también está cifrada y cada entrada necesita su secreto de autenticación.
 

@@ -1,8 +1,13 @@
 from dataclasses import asdict, dataclass
+from dataclasses import field as dataclass_field
 from datetime import datetime
 from typing import Any
 
 from src.utils import clean_html, parse_date
+
+
+def ignored_assignment(name: str) -> bool:
+    return "scorm" in name.casefold()
 
 
 @dataclass(frozen=True)
@@ -34,7 +39,12 @@ class Assignment:
 
     @property
     def pending(self) -> bool:
-        return self.requires_submission and not self.submitted and not self.excused
+        return (
+            not ignored_assignment(self.name)
+            and self.requires_submission
+            and not self.submitted
+            and not self.excused
+        )
 
     def overdue(self, now: datetime) -> bool:
         due = parse_date(self.due_at)
@@ -90,3 +100,4 @@ class Snapshot:
     courses: list[Course]
     assignments: list[Assignment]
     missing: set[str]
+    ignored: dict[str, str] = dataclass_field(default_factory=dict)

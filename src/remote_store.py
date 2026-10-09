@@ -1,5 +1,6 @@
 """Estado cifrado compartido entre el webhook y el comprobador horario."""
 
+import copy
 import json
 from typing import Any
 
@@ -7,6 +8,66 @@ from src.errors import APIError, StorageConflict, StorageError
 from src.http_client import HTTPClient
 from src.partitions import merge_parts, partition_state
 from src.storage import EncryptedCodec, State
+
+_MISSING = object()
+
+
+def _merge(base: Any, local: Any, remote: Any) -> Any:
+    def clone(value: Any) -> Any:
+        return value if value is _MISSING else copy.deepcopy(value)
+
+    if local == base:
+        return clone(remote)
+    if remote == base or local == remote:
+        return clone(local)
+    if all(isinstance(value, dict) for value in (base, local, remote)):
+        merged = {}
+        for key in base.keys() | local.keys() | remote.keys():
+            value = _merge(
+                base.get(key, _MISSING), local.get(key, _MISSING), remote.get(key, _MISSING)
+            )
+            if value is not _MISSING:
+                merged[key] = value
+        return merged
+    raise StorageConflict("Cambios simultáneos en el mismo dato; hay que recargarlo.")
+
+
+def _rebase(base: State, local: State, remote: State) -> State:
+    # Account switches/disconnects invalidate snapshots and notifications for that user.
+    touched = {
+        uid
+        for uid in base["users"].keys() | local["users"].keys()
+        if base["users"].get(uid) != local["users"].get(uid)
+    }
+    for key in base["outbox"].keys() | local["outbox"].keys():
+        old, wanted = base["outbox"].get(key), local["outbox"].get(key)
+        if old != wanted:
+            touched.add(str((wanted or old)["chat_id"]))
+            # Even an identical sending status is not proof that WE claimed the send.
+            if remote["outbox"].get(key) != old:
+                raise StorageConflict("Otro proceso cambió el mismo envío; no se repite.")
+    for uid in touched:
+        old, current = base["users"].get(uid), remote["users"].get(uid)
+        if old and (
+            not current
+            or any(
+                old.get(field) != current.get(field)
+                for field in ("token", "canvas_user_id", "connected_at")
+            )
+        ):
+            raise StorageConflict("La conexión cambió; no se aplican datos de la cuenta anterior.")
+    return _merge(base, local, remote)
+
+
+def _replace_in_place(target: dict, source: dict) -> None:
+    # Keep references held by the notifier to its claimed event and current user.
+    for key in target.keys() - source.keys():
+        del target[key]
+    for key, value in source.items():
+        if isinstance(target.get(key), dict) and isinstance(value, dict):
+            _replace_in_place(target[key], value)
+        else:
+            target[key] = copy.deepcopy(value)
 
 
 class RemoteStore:
@@ -51,7 +112,11 @@ class RemoteStore:
             for name in result["parts"]:
                 if not isinstance(name, str) or name.endswith(":view"):
                     raise StorageError("Índice de particiones inválido.")
-                row = self._call({"action": "read", "version": result["version"], "id": name})
+                row = (
+                    {"ciphertext": result["ciphertexts"].get(name)}
+                    if isinstance(result.get("ciphertexts"), dict)
+                    else self._call({"action": "read", "version": result["version"], "id": name})
+                )
                 if not isinstance(row.get("ciphertext"), str):
                     raise StorageError("Partición remota incompleta.")
                 parts[name] = self.codec.decode(row["ciphertext"].encode("ascii"))
@@ -72,6 +137,24 @@ class RemoteStore:
         return state
 
     def save(self, state: State) -> None:
+        if not self.partitioned or not self.last_plaintext:
+            self._save_once(state)
+            return
+        base = json.loads(self.last_plaintext)
+        desired = copy.deepcopy(state)
+        for _ in range(5):
+            try:
+                self._save_once(desired)
+            except StorageConflict:
+                current = self.load()
+                desired = _rebase(base, desired, current)
+                base = current
+                continue
+            _replace_in_place(state, desired)
+            return
+        raise StorageConflict("Demasiadas actualizaciones simultáneas; hay que recargarlo.")
+
+    def _save_once(self, state: State) -> None:
         plaintext = json.dumps(state, sort_keys=True)
         if plaintext == self.last_plaintext:
             return

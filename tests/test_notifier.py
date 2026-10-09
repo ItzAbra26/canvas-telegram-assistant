@@ -13,6 +13,19 @@ def messages(state):
     return [e.get("text", "") for e in state["outbox"].values()]
 
 
+def test_scorm_never_alerts_and_pending_legacy_notices_are_cancelled(
+    state, snapshot, task, config, now, store, telegram
+):
+    reconcile(state, "111", snapshot, config, now)
+    enqueue(state, f"u111:task:{task.key}:new", 111, "Old task notice")
+    snapshot.assignments = [replace(task, name="Unidad 1 · sCoRm")]
+    reconcile(state, "111", snapshot, config, now + timedelta(hours=1))
+    assert state["users"]["111"]["tasks"][task.key]["ignored"]
+    assert dispatch(state, store, telegram, now)
+    assert all("Old task notice" not in text for _, text in telegram.sent)
+    assert state["outbox"][f"u111:task:{task.key}:new"]["status"] == "cancelled"
+
+
 def test_manual_refresh_does_not_swallow_changes_or_new_task_alerts(
     state, snapshot, task, config, now
 ):

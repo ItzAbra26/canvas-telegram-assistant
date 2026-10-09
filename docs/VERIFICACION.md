@@ -5,8 +5,8 @@ Comprobado el 9 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/c
 | Comprobación | Resultado |
 | --- | --- |
 | Dependencias Python y Node.js | Instaladas y verificadas |
-| Python local, 3.14.2 | 130 tests correctos; cobertura 90 % |
-| Webhook, Node.js 24 | 51 tests correctos |
+| Python local, 3.14.2 | 142 tests correctos; cobertura 90 % |
+| Webhook, Node.js 24 | 53 tests correctos |
 | Ruff: lint y formato | Correctos |
 | pip check | Sin incompatibilidades |
 | npm audit --audit-level=high | 0 vulnerabilidades |
@@ -40,3 +40,5 @@ Se corrigió además el registro de alumnos: una cuenta válida obtenía 200 des
 El 9 de octubre se añadieron botones, /actualizar y /entregar al webhook. Telegram acepta mensajes y callback_query. Las pruebas cubren selección y autorización por alumno, tarea cerrada o con herramienta externa, tamaño y extensión, caducidad, cambio de archivo/tarea, entrega tardía/de grupo/repetida, confirmación obligatoria, desconexión durante la subida, transferencia multipart oficial, ausencia de credenciales en hosts externos y resultado incierto sin reenvío. Los tests de D1 preservan las descripciones completas y el historial que necesita el comprobador horario tras actualizar manualmente.
 
 El flujo de entrega de archivos se verificó con documentos y APIs simuladas. No se ha entregado ningún trabajo académico real para comprobarlo. La primera prueba real debe hacerse con un archivo del alumno en una tarea de práctica que admita archivos, revisando la pantalla de confirmación y el resultado en Canvas. Las restricciones del centro, intentos disponibles y herramientas externas siguen sujetos a Canvas.
+
+Se excluyen las tareas cuyo nombre contenga SCORM, tanto en datos nuevos como en caché e historial. Las pruebas comprueban listas, contadores, avisos pendientes y selector de entregas. También se ha corregido la concurrencia observada durante la prueba real: una lectura SQL atómica evita interrupciones entre particiones; Python combina cambios independientes sin reemplazar los mensajes o datos del webhook. Se rechazan cambios de cuenta, desconexiones, actualizaciones incompatibles y reclamaciones simultáneas del mismo envío.
