@@ -36,6 +36,7 @@ def partition_state(state: State) -> dict[str, State]:
             for record in view["users"][uid]["tasks"].values():
                 # Python conserva el enunciado completo en :full para detectar cambios.
                 record["data"]["description"] = record["data"]["description"][:400]
+                record.pop("hourly_data", None)
             parts[prefix + ":view"] = view
         parts[prefix + ":control"] = control
     return parts

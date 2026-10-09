@@ -11,7 +11,9 @@ from src.utils import date_label, e, parse_date
 PRIVACY = (
     "🔐 <b>Privacidad · modo de prueba</b>\n\n"
     "Enviar tu token autoriza a esta práctica a consultar tus cursos, tareas y estado de entrega "
-    "y enviarlos a este chat privado. El código solo hace lecturas en Canvas. "
+    "y enviarlos a este chat privado. El bot en la nube también permite subir un archivo y "
+    "registrar una entrega, solo después de que selecciones la tarea y confirmes expresamente. "
+    "El archivo pasa por Telegram y Canvas; el bot conserva sus metadatos cifrados, no su contenido. "
     "Un token puede conceder más permisos que los que utiliza el bot.\n\n"
     "El bot intentará borrar el mensaje con el token y guardará credenciales y datos cifrados. "
     "El administrador que dispone de la clave puede descifrarlos. Telegram procesa los mensajes; "

@@ -15,6 +15,8 @@ COMMANDS = {
     "ultimas": "Tareas creadas o detectadas recientemente",
     "asignaturas": "Cursos activos y tareas pendientes",
     "resumen": "Resumen y próxima entrega",
+    "actualizar": "Consultar Canvas ahora (bot en la nube)",
+    "entregar": "Seleccionar tarea y entregar un archivo (bot en la nube)",
     "ayuda": "Lista de comandos",
     "estado": "Estado de tu conexión",
     "id": "Tu identificador de Telegram para la lista de clase",
@@ -75,7 +77,7 @@ class TelegramBot:
             raise APIError("Telegram")
         return sorted(result, key=lambda update: update["update_id"])
 
-    def send_message(self, chat_id: int, text: str) -> int:
+    def send_message(self, chat_id: int, text: str, reply_markup: dict | None = None) -> int:
         result = self._call(
             "sendMessage",
             {
@@ -83,6 +85,7 @@ class TelegramBot:
                 "text": text,
                 "parse_mode": "HTML",
                 "link_preview_options": {"is_disabled": True},
+                **({"reply_markup": reply_markup} if reply_markup is not None else {}),
             },
         )
         if not isinstance(result, dict) or type(result.get("message_id")) is not int:

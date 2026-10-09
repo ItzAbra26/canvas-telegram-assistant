@@ -80,3 +80,34 @@ test('registration and disconnect use the same partition schema as Python', asyn
   await store.change(state=>{delete state.users['111'];});
   assert.deepEqual((await restore(db)).users,{});
 });
+
+test('refresh and submission mutations retain full descriptions and hourly baseline in D1', async () => {
+  const state = blank(), description = 'Full description '.repeat(200);
+  state.users['111'] = {onboarding:false,token:'SYNTHETIC',canvas_user_id:123,tasks:{'10:20':{data:{id:20,course_id:10,course_name:'Interfaces',name:'Work',description,created_at:null,unlock_at:null,due_at:null,points:10,url:'https://medac.instructure.com/courses/10/assignments/20',submission_state:'unsubmitted',submitted:false,excused:false,requires_submission:true},revision:0,reminders:{}}},courses:[{id:10,name:'Interfaces'}]};
+  const db = await initialize(state), store = await db.scoped('111',key);
+  await store.change(current => {
+    const record = current.users['111'].tasks['10:20'];
+    assert.equal(record.data.description,description);
+    record.hourly_data = structuredClone(record.data);
+    record.data.description += ' changed';
+  }, true);
+  await store.change(current => {current.users['111'].delivery={stage:'ready'};});
+  const saved = await restore(db), record = saved.users['111'].tasks['10:20'];
+  assert.equal(record.data.description,description+' changed');
+  assert.equal(record.hourly_data.description,description);
+  const view = (await store.load()).state.users['111'].tasks['10:20'];
+  assert.equal(view.data.description.length,400);
+  assert.equal(view.hourly_data,undefined);
+  const scoped = await db.makeStore({},key,{callback_query:{from:{id:111}}});
+  assert.equal((await scoped.load()).state.users['111'].token,'SYNTHETIC');
+});
+
+test('deployment refresh selects a ready account without changing pending registration', async () => {
+  const state = blank();
+  state.users['111'] = {onboarding:true,tasks:{},courses:[]};
+  state.users['222'] = {onboarding:false,token:'SYNTHETIC',canvas_user_id:123,tasks:{},courses:[]};
+  const db = await initialize(state), store = await db.makeSmokeStore({},key,true);
+  const cached = (await store.load()).state;
+  assert.equal(cached.users['222'].token,'SYNTHETIC');
+  assert.equal((await restore(db)).users['111'].onboarding,true);
+});

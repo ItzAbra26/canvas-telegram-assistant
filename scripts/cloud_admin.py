@@ -111,7 +111,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Administración del webhook de Canvas")
     parser.add_argument(
         "action",
-        choices=["bootstrap", "configure", "setup", "status", "probe", "canvas-health", "backup"],
+        choices=[
+            "bootstrap",
+            "configure",
+            "setup",
+            "status",
+            "probe",
+            "refresh-probe",
+            "canvas-health",
+            "backup",
+        ],
     )
     parser.add_argument("--url")
     parser.add_argument("--output", type=Path, default=Path("data/cloudflare-bootstrap.sql"))

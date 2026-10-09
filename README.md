@@ -2,7 +2,7 @@
 
 Bot de **prácticas de clase, multiusuario**, en Python. Cada alumno abre el mismo bot por privado, envía `/start`, sigue las instrucciones y registra **su propio token de Canvas**. El bot valida el token, intenta borrar el mensaje y conserva credenciales y estado **cifrados**. Cada cuenta tiene sus propias tareas, entregas, cambios y recordatorios.
 
-El centro de esta configuración es **https://medac.instructure.com**. No hay contraseñas ni tokens reales en el código. El bot utiliza la API oficial y solo realiza consultas a Canvas: no entrega tareas ni modifica calificaciones.
+El centro de esta configuración es **https://medac.instructure.com**. No hay contraseñas ni tokens reales en el código. El bot utiliza la API oficial para consultar Canvas y, si el alumno selecciona una tarea y confirma expresamente, subir un archivo y registrar su entrega. No modifica calificaciones.
 
 ### Esta instalación ya está activa
 
@@ -27,10 +27,12 @@ El código está publicado en [ItzAbra26/canvas-telegram-assistant](https://gith
 | `/ultimas` | Tareas creadas o detectadas en los últimos siete días |
 | `/asignaturas` | Cursos activos y número de pendientes por curso |
 | `/resumen` | Urgentes, esta semana, más adelante, sin fecha y próxima entrega |
+| `/actualizar` | Consulta Canvas ahora y devuelve el resumen actualizado, con un minuto entre solicitudes |
+| `/entregar` | Selecciona una tarea, recibe un documento y pide confirmar antes de entregarlo |
 | `/estado` | Conexión, última sincronización y envíos inciertos |
 | `/id` | Tu ID de Telegram, útil para restringir la práctica a la clase |
 | `/ayuda` | Lista de comandos |
-| `/cancelar` | Cancela el registro; conserva una conexión anterior si la había |
+| `/cancelar` | Cancela el registro o una entrega pendiente; no anula entregas ya enviadas a Canvas |
 | `/desconectar` | Elimina tu conexión y datos del estado activo |
 | `/privacidad` | Datos utilizados, cifrado, administrador e historial |
 
@@ -39,6 +41,27 @@ También envía avisos de tareas nuevas; cambios de fecha, descripción, puntos,
 Los textos usan HTML de Telegram, escapan títulos/descripciones y se reparten en mensajes de hasta 3.500 caracteres sin cortar etiquetas. La descripción HTML de Canvas se limpia y se abrevia en los avisos. La descripción completa permanece en el estado cifrado y en Canvas.
 
 Para que las listas sean rápidas y legibles, el webhook muestra **8 tareas por página**. Si hay más, indica cómo continuar: por ejemplo, `/pendientes 2`, `/atrasadas 2` o `/ultimas 2`. Puedes consultar todas las páginas; no se descartan tareas.
+
+### Botones, actualización inmediata y entrega de archivos
+
+En el bot alojado en Cloudflare, las respuestas incluyen botones para **Resumen, Pendientes, Hoy, Esta semana, Actualizar, Entregar tarea, Asignaturas y Ayuda**. `/actualizar` responde al comenzar, consulta tus cursos y tareas en segundo plano y envía el resumen cuando termina. Los avisos automáticos siguen calculándose cada hora; la actualización manual conserva el historial para no perder alertas de cambios o tareas nuevas. Si falla una consulta, conserva el estado anterior.
+
+Para entregar un trabajo:
+
+1. Pulsa **Entregar tarea** o escribe `/entregar` y selecciona la tarea. La lista incluye páginas y las pendientes aparecen primero.
+2. El bot consulta Canvas para comprobar que permite `online_upload` y que está disponible para ti. Muestra la asignatura, fecha y extensiones admitidas.
+3. Envía **un archivo como documento**, con nombre y extensión, de hasta **10 MB**. Para varios archivos puedes usar un ZIP si Canvas lo permite. Las fotos comprimidas, vídeos y álbumes no se procesan como documentos.
+4. Revisa la asignatura, tarea y archivo. Se avisa si ya hay una entrega, si es de grupo o si ha vencido el plazo. La selección caduca en 15 minutos. Enviar el archivo todavía no realiza una entrega ni lo sube a Canvas.
+5. Pulsa **Entregar ahora**. Esa confirmación autoriza la subida y la entrega con tu cuenta. El bot vuelve a consultar la tarea antes de subir; si cambiaron el nombre, fecha, grupo o intento anterior, pide seleccionar de nuevo.
+6. Espera **Entrega confirmada por Canvas**. El bot comprueba el propietario, la tarea, el intento, la fecha y el ID del archivo registrado, y actualiza la vista de pendientes.
+
+`/cancelar` o el botón Cancelar elimina una entrega pendiente. No puede deshacer una petición que ya ha empezado ni anular un trabajo entregado en Canvas. Cambiar el archivo invalida su botón de confirmación anterior. Las tareas de texto, cuestionarios, enlaces o herramientas externas deben entregarse desde Canvas.
+
+El documento se descarga de Telegram en memoria y se envía a la URL firmada que proporciona Canvas; **el token de Canvas nunca se envía al almacenamiento externo**, ni se comparte con Canvas una URL que contenga el token de Telegram. D1 guarda el estado y los metadatos cifrados, no los bytes del archivo. Telegram y Canvas conservan el documento según sus servicios. Un fallo después de subir puede dejar un archivo en Canvas sin registrar la entrega.
+
+Una respuesta perdida al registrar la entrega se marca como **incierta**: no se repite automáticamente. Revisa el trabajo en Canvas antes de crear otro intento. El comprobador horario recupera las operaciones interrumpidas sin reenviarlas. Esta función usa únicamente APIs oficiales: [Submissions](https://developerdocs.instructure.com/services/canvas/resources/submissions) y [File Uploads](https://developerdocs.instructure.com/services/canvas/basics/file.file_uploads). Telegram permite actualmente descargar hasta 20 MB mediante `getFile`; aquí se limita a 10 MB para reducir memoria y tiempo en Workers Free. [Telegram getFile](https://core.telegram.org/bots/api#getfile).
+
+Los botones, la actualización inmediata y las entregas se implementan en el webhook de Cloudflare; el modo local Python se conserva para consultas y pruebas. En GitHub Actions no se suben trabajos ni se repiten entregas; solo se revisa Canvas y se despachan avisos.
 
 ## 2. Ejecución sin tener tu PC encendido y coste
 
@@ -297,6 +320,8 @@ Endpoints utilizados, con paginación `Link` y `per_page=100`:
 | `GET /api/v1/courses/{id}/assignments?include[]=submission&override_assignment_dates=true` | Tareas y entregas del usuario autenticado |
 | `GET /api/v1/courses/{id}/assignments/{assignment}/submissions/self` | Fallback oficial si falta la entrega incluida |
 | `GET /api/v1/courses/{id}/assignments/{assignment}` | Comprueba una tarea que ha desaparecido de la lista |
+| `POST /api/v1/courses/{id}/assignments/{assignment}/submissions/self/files` | Inicia la subida del documento después de confirmar |
+| `POST /api/v1/courses/{id}/assignments/{assignment}/submissions` | Registra la entrega `online_upload` con el ID del archivo |
 
 Referencias: [Courses](https://developerdocs.instructure.com/services/canvas/resources/courses), [Assignments](https://developerdocs.instructure.com/services/canvas/resources/assignments), [Submissions](https://developerdocs.instructure.com/services/canvas/resources/submissions), [Pagination](https://developerdocs.instructure.com/services/canvas/basics/file.pagination), [Telegram Bot API](https://core.telegram.org/bots/api).
 

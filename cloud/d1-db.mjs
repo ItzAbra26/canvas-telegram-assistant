@@ -42,26 +42,32 @@ export class D1DB {
     return new D1StateStore(this, key, uid, await hash(uid));
   }
   async makeStore(config, key, body) {
-    const id = body.message?.from?.id;
+    const id = body.callback_query?.from?.id ?? body.message?.from?.id;
     return this.scoped(Number.isSafeInteger(id) && id > 0 ? String(id) : '0', key);
   }
-  async makeSmokeStore(config, key) {
+  async makeSmokeStore(config, key, ready = false) {
     const index = await this.index();
     const meta = await open((await this.read(index.version, 'meta')).ciphertext, key);
+    if (ready) for (const uid of Object.keys(meta.users)) {
+      const part = await open((await this.read(index.version, await hash(uid) + ':control')).ciphertext, key);
+      const user = part.users[uid];
+      if (user?.token && !user.disabled && !user.onboarding) return this.scoped(uid, key);
+    }
     return this.scoped(Object.keys(meta.users)[0] || '0', key);
   }
 }
 
 export class D1StateStore {
   constructor(db, key, uid, scope) { this.db = db; this.key = key; this.uid = uid; this.scope = scope; }
-  async load() {
-    const rows = await this.db.db.prepare('SELECT c.revision, p.id, p.ciphertext FROM bot_checkpoint c LEFT JOIN bot_parts p ON p.id IN (?, ?, ?) WHERE c.id=1').bind('meta', this.scope + ':control', this.scope + ':view').all();
+  async load(full = false) {
+    const dataPart = this.scope + (full ? ':full' : ':view');
+    const rows = await this.db.db.prepare('SELECT c.revision, p.id, p.ciphertext FROM bot_checkpoint c LEFT JOIN bot_parts p ON p.id IN (?, ?, ?) WHERE c.id=1').bind('meta', this.scope + ':control', dataPart).all();
     const parts = {};
     for (const row of rows.results) if (row.id) parts[row.id] = await open(row.ciphertext, this.key);
     if (!parts.meta) throw new Error('Missing metadata');
     const state = structuredClone(parts.meta);
     const control = parts[this.scope + ':control'] || blank();
-    const view = parts[this.scope + ':view'] || blank();
+    const view = parts[dataPart] || blank();
     state.outbox = structuredClone(control.outbox);
     if (state.users[this.uid]) {
       if (!control.users[this.uid] || !view.users[this.uid]) throw new Error('Incomplete student state');
@@ -69,9 +75,9 @@ export class D1StateStore {
     }
     return { version: rows.results[0].revision, state, parts };
   }
-  async change(callback) {
+  async change(callback, fullData = false) {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const { version, state, parts: previous } = await this.load();
+      const { version, state, parts: previous } = await this.load(fullData);
       if (callback(state) === false) return state;
       const meta = structuredClone(state);
       meta.users = Object.fromEntries(Object.keys(state.users).map(uid => [uid, { onboarding: false }]));
@@ -85,10 +91,13 @@ export class D1StateStore {
         const full = blank();
         full.users[this.uid] = { onboarding: false, tasks: user.tasks || {}, courses: user.courses || [] };
         // Commands edit only the small control partition. Preserve full descriptions.
-        if (!equal(full, previous[this.scope + ':view'])) {
+        if (!equal(full, previous[this.scope + (fullData ? ':full' : ':view')])) {
           parts[this.scope + ':full'] = full;
           const view = structuredClone(full);
-          for (const task of Object.values(view.users[this.uid].tasks)) task.data.description = task.data.description.slice(0, 400);
+          for (const task of Object.values(view.users[this.uid].tasks)) {
+            task.data.description = task.data.description.slice(0, 400);
+            delete task.hourly_data;
+          }
           parts[this.scope + ':view'] = view;
         }
       } else {

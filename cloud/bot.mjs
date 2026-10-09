@@ -1,5 +1,6 @@
 import { open, seal, validateState } from './codec.mjs';
 import { pack, pending, render } from './commands.mjs';
+import { Actions, normalizeUpdate, menu } from './interactions.mjs';
 
 export class StateStore {
   constructor(db, key) { this.db = db; this.key = key; }
@@ -41,16 +42,37 @@ export class Telegram {
     }
     return body.result;
   }
-  async send(chat, text) {
-    const result = await this.call('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+  async send(chat, text, markup) {
+    const result = await this.call('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: markup });
     if (!Number.isSafeInteger(result?.message_id)) throw new TelegramError(0, 0, true);
     return result.message_id;
   }
   async remove(chat, message) {
     try { return await this.call('deleteMessage', { chat_id: chat, message_id: message }) === true; } catch { return false; }
   }
+  async answer(id) {
+    try { await this.call('answerCallbackQuery', { callback_query_id: id }); } catch { /* An expired button must not prevent a normal response. */ }
+  }
+  async download(document, signal) {
+    const info = await this.call('getFile', { file_id: document.file_id });
+    const path = info?.file_path;
+    if (typeof path !== 'string' || !/^[A-Za-z0-9_/-]+\.[A-Za-z0-9]+$/.test(path) || path.includes('..') || path.startsWith('/') || (info.file_size != null && info.file_size !== document.size)) throw new TelegramError();
+    let response;
+    try { response = await this.fetcher(this.root.replace('/bot', '/file/bot') + path, { redirect: 'manual', signal: AbortSignal.any([AbortSignal.timeout(15000), signal]) }); }
+    catch { throw new TelegramError(); }
+    if (!response.ok || (Number(response.headers.get('content-length')) > document.size)) throw new TelegramError();
+    const reader = response.body.getReader(), chunks = []; let size = 0;
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      size += value.length;
+      if (size > document.size) { await reader.cancel(); throw new TelegramError(); }
+      chunks.push(value);
+    }
+    if (size !== document.size) throw new TelegramError();
+    return new Blob(chunks, { type: document.mime });
+  }
 }
-const enqueue = (state, id, chat, text) => { state.outbox[id] ||= { status: 'pending', chat_id: chat, text }; };
+const enqueue = (state, id, chat, text, markup = menu()) => { state.outbox[id] ||= { status: 'pending', chat_id: chat, text, reply_markup: markup }; };
 const pages = (state, id, chat, blocks) => pack(blocks).forEach((text, index) => enqueue(state, `${id}:${index}`, chat, text));
 function forget(state, uid) {
   delete state.users[uid];
@@ -73,7 +95,7 @@ export class ImmediateBot {
       });
       if (!event) continue;
       let result;
-      try { result = { status: 'sent', message_id: await this.telegram.send(event.chat_id, event.text), sent_at: new Date().toISOString() }; }
+      try { result = { status: 'sent', message_id: await this.telegram.send(event.chat_id, event.text, event.reply_markup), sent_at: new Date().toISOString() }; }
       catch (error) {
         if (!(error instanceof TelegramError)) throw error;
         result = error.ambiguous ? { status: 'uncertain' } : [400, 403].includes(error.status) ? { status: 'cancelled' } : { status: 'pending', not_before: new Date(Date.now() + Math.max(60, error.retry) * 1000).toISOString() };
@@ -87,14 +109,18 @@ export class ImmediateBot {
   }
   async receive(update, now = new Date().toISOString()) {
     if (!Number.isSafeInteger(update?.update_id)) throw new Error('Invalid update');
-    const message = update.message || {}, chat = message.chat || {}, sender = message.from || {};
+    const message = normalizeUpdate(update), chat = message.chat || {}, sender = message.from || {};
     const uid = String(sender.id);
     const allowed = chat.type === 'private' && Number.isSafeInteger(sender.id) && sender.id > 0 && chat.id === sender.id && !sender.is_bot && (!this.config.allowed_users?.length || this.config.allowed_users.includes(sender.id));
     const prefix = `update:${update.update_id}`;
+    if (allowed && update.callback_query?.id) await this.telegram.answer?.(update.callback_query.id);
     const { state: previous } = await this.store.load();
     if (update.update_id < (this.config.polling_cutoff || 0) || previous.webhook_updates?.[update.update_id]) { await this.dispatch(prefix); return null; }
     const text = typeof message.text === 'string' ? message.text.trim() : '';
     const command = text.startsWith('/') ? text.split(/\s/, 1)[0].split('@', 1)[0].toLowerCase() : '';
+    if (allowed && ['/actualizar', '/entregar', '/tarea', '/confirmar', '/cancelar_entrega'].includes(command) || allowed && message.document) {
+      return new Actions(this).receive(update, message, now);
+    }
     let deleted = false, profile = null, profileError = { status: 0, reason: 'network' };
     if (allowed && (message.forward_origin || (text && !command))) deleted = await this.telegram.remove(sender.id, message.message_id);
     if (allowed && text && !command && !message.forward_origin && previous.users[uid]?.onboarding && this.config.test_mode && text.length >= 16 && text.length <= 512 && /^[\x21-\x7e]+$/.test(text)) {
@@ -122,8 +148,9 @@ export class ImmediateBot {
         Object.assign(user, { onboarding: true, onboarding_at: now });
         reply(this.messages.start);
       } else if (command === '/cancelar') {
-        if (state.users[uid]) { user.onboarding = false; if (!user.token) delete state.users[uid]; }
-        reply('Registro cancelado. Puedes volver con /start.');
+        if (user.delivery?.stage === 'processing') { reply('Tu entrega ya está en curso. No puedo anular una solicitud enviada a Canvas; revisa el resultado allí.'); return; }
+        if (state.users[uid]) { user.onboarding = false; if (user.delivery?.stage !== 'processing') delete user.delivery; if (!user.token) delete state.users[uid]; }
+        reply('Registro o entrega pendiente cancelados. Puedes volver con /start o /entregar.');
       } else if (command === '/desconectar') {
         forget(state, uid); reply('🔌 Conexión y datos activos borrados. Revoca tu token también en Canvas. Las copias anteriores pueden seguir en su historial; consulta /privacidad.');
       } else if (command === '/id') {
@@ -188,5 +215,10 @@ export class ImmediateBot {
       enqueue(state, `u${uid}:baseline`, Number(uid), `📚 <b>Primera sincronización completada</b>\n${snapshot.courses.length} asignaturas · ${snapshot.assignments.filter(pending).length} tareas pendientes.\nHe guardado las tareas existentes. Desde ahora avisaré de las nuevas y sus cambios. Usa /resumen.`);
     });
     await this.dispatch(`u${uid}:baseline`);
+  }
+  async runJob(connection) {
+    if (connection.kind === 'refresh') return new Actions(this).refresh(connection);
+    if (connection.kind === 'submit') return new Actions(this).submit(connection);
+    return this.firstSync(connection);
   }
 }

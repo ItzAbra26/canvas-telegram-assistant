@@ -1,12 +1,12 @@
 # Verificación de esta entrega
 
-Comprobado el 8 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/canvas-telegram-assistant), [bot compartido](https://t.me/SuperDelegado2B_bot) y [servicio Cloudflare](https://canvas-telegram-assistant.canvas-telegram-immediate.workers.dev/).
+Comprobado el 9 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/canvas-telegram-assistant), [bot compartido](https://t.me/SuperDelegado2B_bot) y [servicio Cloudflare](https://canvas-telegram-assistant.canvas-telegram-immediate.workers.dev/).
 
 | Comprobación | Resultado |
 | --- | --- |
 | Dependencias Python y Node.js | Instaladas y verificadas |
-| Python local, 3.14.2 | 127 tests correctos; cobertura 90 % |
-| Webhook, Node.js 24 | 31 tests correctos |
+| Python local, 3.14.2 | 130 tests correctos; cobertura 90 % |
+| Webhook, Node.js 24 | 51 tests correctos |
 | Ruff: lint y formato | Correctos |
 | pip check | Sin incompatibilidades |
 | npm audit --audit-level=high | 0 vulnerabilidades |
@@ -18,6 +18,8 @@ Comprobado el 8 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/c
 | Respuestas tras la migración | Confirmadas por Telegram y conservadas en D1 |
 | Envío real desde Cloudflare | Confirmado en 325 ms |
 | Resumen mediante caché, cola y transacciones | Una respuesta confirmada en 741 ms; prueba deduplicada |
+| Resumen con botones | Respuesta real confirmada en 718 ms |
+| Actualización manual real | 10 cursos, 165 tareas, resumen enviado en 14.530 ms |
 | Estado migrado | Una cuenta Canvas registrada, 148 tareas y avisos anteriores conservados |
 | Persistencia D1 | Descifrado y copia manual comprobados |
 | GitHub Secrets | Los cinco obligatorios configurados; valores no publicados |
@@ -34,3 +36,7 @@ La revisión se programa una vez por hora, al minuto 17; los cron de GitHub pued
 Para repetir las pruebas locales, sigue el README. python scripts/cloud_admin.py status comprueba el webhook; probe comprueba el resumen con envío deduplicado; backup guarda una copia cifrada ignorada por Git. No se han generado tareas, cambios de notas ni entregas en Canvas para realizar las comprobaciones.
 
 Se corrigió además el registro de alumnos: una cuenta válida obtenía 200 desde la conexión local y 403 con HTML desde Cloudflare. Tras enviar `Accept: application/json` y un `User-Agent` propio, ambos endpoints oficiales (`users/self/profile` y `users/self`) devolvieron 200 desde el servicio desplegado. Los avisos distinguen 401, 403 y bloqueo del servidor; no atribuyen automáticamente un 403 a caducidad. La comprobación autenticada `canvas-health` no devuelve información personal ni credenciales. Las pruebas nuevas verifican las cabeceras, el rechazo HTML, el reintento del registro y la privacidad del diagnóstico.
+
+El 9 de octubre se añadieron botones, /actualizar y /entregar al webhook. Telegram acepta mensajes y callback_query. Las pruebas cubren selección y autorización por alumno, tarea cerrada o con herramienta externa, tamaño y extensión, caducidad, cambio de archivo/tarea, entrega tardía/de grupo/repetida, confirmación obligatoria, desconexión durante la subida, transferencia multipart oficial, ausencia de credenciales en hosts externos y resultado incierto sin reenvío. Los tests de D1 preservan las descripciones completas y el historial que necesita el comprobador horario tras actualizar manualmente.
+
+El flujo de entrega de archivos se verificó con documentos y APIs simuladas. No se ha entregado ningún trabajo académico real para comprobarlo. La primera prueba real debe hacerse con un archivo del alumno en una tarea de práctica que admita archivos, revisando la pantalla de confirmación y el resultado en Canvas. Las restricciones del centro, intentos disponibles y herramientas externas siguen sujetos a Canvas.

@@ -286,3 +286,21 @@ test('authenticated Canvas health returns only endpoint status, never student da
   assert.ok(result.checks.every(check => check.status === 200 && check.valid_user));
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE|111|123/);
 });
+
+test('deployment refresh queries Canvas and returns only safe counts', async () => {
+  const state = blank();
+  state.users['111'] = {onboarding:false,token:'SYNTHETIC_PRIVATE',canvas_user_id:123,tasks:{},courses:[]};
+  const db = await new DB().initialize(state), calls = [];
+  const handler = createHandler(db,messages,x=>x,async (url,args) => {
+    calls.push(url);
+    if (url.includes('telegram.org')) return Response.json({ok:true,result:{message_id:42}});
+    if (url.includes('/assignments?')) return Response.json([{id:20,name:'PRIVATE_WORK',description:'PRIVATE_DESCRIPTION',due_at:null,created_at:null,unlock_at:null,points_possible:10,submission_types:['online_upload'],published:true,submission:{workflow_state:'unsubmitted'}}]);
+    return Response.json([{id:10,name:'PRIVATE_COURSE'}]);
+  });
+  const response = await handler(new Request(config.webhook_url,{method:'POST',headers:{'X-Canvas-State-Key':stateKey},body:JSON.stringify({action:'refresh-probe'})}));
+  assert.equal(response.status,200);
+  const result = await response.json();
+  assert.equal(result.updated,true); assert.equal(result.tasks,1); assert.equal(result.courses,1);
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE|111|123/);
+  assert.ok(calls.some(url=>url.includes('sendMessage')));
+});

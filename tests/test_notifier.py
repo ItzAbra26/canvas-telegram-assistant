@@ -13,6 +13,59 @@ def messages(state):
     return [e.get("text", "") for e in state["outbox"].values()]
 
 
+def test_manual_refresh_does_not_swallow_changes_or_new_task_alerts(
+    state, snapshot, task, config, now
+):
+    reconcile(state, "111", snapshot, config, now)
+    record = state["users"]["111"]["tasks"][task.key]
+    record["hourly_data"] = copy.deepcopy(record["data"])
+    updated = replace(task, description="Descripción nueva", due_at=None)
+    record["data"] = updated.to_dict()
+    new = replace(task, id=2)
+    new_record = copy.deepcopy(record)
+    new_record.update(data=new.to_dict(), manual_unnotified=True)
+    state["users"]["111"]["tasks"][new.key] = new_record
+    snapshot.assignments = [updated, new]
+    reconcile(state, "111", snapshot, config, now + timedelta(hours=1))
+    assert sum("NUEVA TAREA" in text for text in messages(state)) == 1
+    assert any("Descripción actualizada" in text for text in messages(state))
+    assert any("Fecha anterior" in text for text in messages(state))
+    assert "hourly_data" not in record
+    count = len(state["outbox"])
+    reconcile(state, "111", snapshot, config, now + timedelta(hours=2))
+    assert len(state["outbox"]) == count
+
+
+def test_abandoned_delivery_is_uncertain_and_never_requeued(state, now):
+    delivery = {
+        "stage": "processing",
+        "started_at": (now - timedelta(minutes=3)).isoformat(),
+        "nonce": "synthetic-operation",
+        "file": {"file_id": "synthetic-private-file"},
+    }
+    state["users"]["111"]["delivery"] = delivery
+    recover_inflight(state, now)
+    assert delivery["stage"] == "uncertain"
+    assert "file" not in delivery
+    assert len(state["outbox"]) == 1
+    recover_inflight(state, now + timedelta(minutes=10))
+    assert len(state["outbox"]) == 1
+
+
+def test_hourly_retry_preserves_buttons_from_webhook(state, store, telegram, now):
+    sent = []
+    markup = {"inline_keyboard": [[{"text": "Resumen", "callback_data": "cmd:resumen:1"}]]}
+
+    def send(chat, text, reply_markup=None):
+        sent.append((chat, text, reply_markup))
+        return 42
+
+    telegram.send_message = send
+    enqueue(state, "interactive-retry", 111, "Respuesta", reply_markup=markup)
+    assert dispatch(state, store, telegram, now)
+    assert sent == [(111, "Respuesta", markup)]
+
+
 def test_baseline_then_new_task_no_duplicates(state, snapshot, task, config, now):
     reconcile(state, "111", snapshot, config, now)
     assert not any("NUEVA TAREA" in m for m in messages(state))

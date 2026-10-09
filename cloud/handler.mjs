@@ -3,6 +3,7 @@ import { ImmediateBot, StateStore, Telegram, TelegramError } from './bot.mjs';
 import { InitialCanvas } from './canvas.mjs';
 import { Conflict, validPart } from './d1-db.mjs';
 import { pack, render } from './commands.mjs';
+import { menu } from './interactions.mjs';
 
 export function createHandler(db, messages, cleanHTML, fetcher = fetch, background = promise => promise.catch(() => {})) {
   return async request => {
@@ -46,7 +47,7 @@ export function createHandler(db, messages, cleanHTML, fetcher = fetch, backgrou
           const identity = await telegram.call('getMe', {});
           if (!identity?.is_bot || !identity.username) throw new Error('Invalid bot');
           await telegram.call('setMyCommands', { commands: Object.entries(messages.commands).map(([command, description]) => ({ command, description })) });
-          const result = await telegram.call('setWebhook', { url: config.webhook_url, ip_address: config.webhook_ip || undefined, secret_token: config.webhook_secret, max_connections: 1, allowed_updates: ['message'], drop_pending_updates: false });
+          const result = await telegram.call('setWebhook', { url: config.webhook_url, ip_address: config.webhook_ip || undefined, secret_token: config.webhook_secret, max_connections: 1, allowed_updates: ['message', 'callback_query'], drop_pending_updates: false });
           if (result !== true) throw new Error('Webhook not confirmed');
           return Response.json({ bot_username: identity.username, webhook_url: config.webhook_url, webhook_installed: true });
         }
@@ -69,18 +70,33 @@ export function createHandler(db, messages, cleanHTML, fetcher = fetch, backgrou
           }
           return Response.json({ checked: true, checks });
         }
-        if (body.action === 'smoke' || body.action === 'probe') {
-          const store = db.makeSmokeStore ? await db.makeSmokeStore(config, config.encryption_key) : new StateStore(db, config.encryption_key);
+        if (body.action === 'smoke' || body.action === 'probe' || body.action === 'refresh-probe') {
+          const store = db.makeSmokeStore ? await db.makeSmokeStore(config, config.encryption_key, body.action === 'refresh-probe') : new StateStore(db, config.encryption_key);
           const { state } = await store.load();
-          const uid = Object.keys(state.users)[0];
+          const uid = body.action === 'refresh-probe' ? Object.keys(state.users).find(id => state.users[id].token && !state.users[id].onboarding && !state.users[id].disabled) : Object.keys(state.users)[0];
           if (!uid) return Response.json({ delivered: false, reason: 'No users registered' });
           const start = performance.now();
+          if (body.action === 'refresh-probe') {
+            const bot = new ImmediateBot(config, store, telegram, token => new InitialCanvas(config.canvas_base_url, token, cleanHTML, fetcher), messages);
+            let job = null;
+            await store.change(current => {
+              job = null;
+              const user = current.users[uid], now = new Date().toISOString();
+              if (!config.test_mode || !user?.token || user.disabled || user.onboarding || user.refresh?.stage === 'running' && Date.now() - Date.parse(user.refresh.at) < 120000) return false;
+              user.refresh = { stage: 'running', at: now, nonce: crypto.randomUUID().replaceAll('-', '') };
+              job = { kind: 'refresh', uid, token: user.token, connected_at: user.connected_at, nonce: user.refresh.nonce };
+            });
+            if (!job) return Response.json({updated:false, reason:'Account not ready or refresh already running'});
+            await bot.runJob(job);
+            const user = (await store.load()).state.users[uid];
+            return Response.json({updated:user.refresh?.stage==='done', courses:user.courses?.length || 0, tasks:Object.keys(user.tasks || {}).length, milliseconds:Math.round(performance.now()-start)});
+          }
           if (body.action === 'probe') {
-            const prefix = 'deployment:immediate-v1';
+            const prefix = 'deployment:interactive-v1';
             const bot = new ImmediateBot(config, store, telegram, null, messages);
             await store.change(current => {
               const blocks = render('resumen', current.users[uid], config, new Date().toISOString(), messages);
-              for (const [index, text] of pack(blocks).entries()) current.outbox[`${prefix}:${index}`] ||= {status:'pending', chat_id:Number(uid),text};
+              for (const [index, text] of pack(blocks).entries()) current.outbox[`${prefix}:${index}`] ||= {status:'pending', chat_id:Number(uid),text,reply_markup:menu()};
             });
             await bot.dispatch(prefix);
             const confirmed = (await store.load()).state;
@@ -96,7 +112,7 @@ export function createHandler(db, messages, cleanHTML, fetcher = fetch, backgrou
       const store = db.makeStore ? await db.makeStore(config, config.encryption_key, body) : new StateStore(db, config.encryption_key);
       const bot = new ImmediateBot(config, store, telegram, token => new InitialCanvas(config.canvas_base_url, token, cleanHTML, fetcher), messages);
       const connection = await bot.receive(body);
-      if (connection) background(bot.firstSync(connection));
+      if (connection) background(bot.runJob(connection));
       return Response.json({ ok: true });
     } catch (error) {
       if (error instanceof Conflict) return new Response('Concurrent checkpoint', {status:409});

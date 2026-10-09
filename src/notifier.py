@@ -59,7 +59,7 @@ def reconcile(state: State, uid: str, snapshot: Snapshot, config: Config, now: d
     for key, a in current.items():
         old = previous.get(key)
         remaining = (parse_date(a.due_at) - now).total_seconds() if a.due_at else None
-        if old is None:
+        if old is None or old.pop("manual_unnotified", False):
             record = {
                 "data": a.to_dict(),
                 "revision": 0,
@@ -82,7 +82,7 @@ def reconcile(state: State, uid: str, snapshot: Snapshot, config: Config, now: d
                 if remaining is not None and remaining <= seconds:
                     record["reminders"][name] = "skipped_initial"
             continue
-        old_data = Assignment(**old["data"])
+        old_data = Assignment(**old.pop("hourly_data", old["data"]))
         changes = []
         due_changed = old_data.due_at != a.due_at
         if due_changed:
@@ -180,6 +180,24 @@ def reconcile(state: State, uid: str, snapshot: Snapshot, config: Config, now: d
 
 
 def recover_inflight(state: State, now: datetime | None = None) -> None:
+    if now:
+        for uid, user in state["users"].items():
+            delivery = user.get("delivery", {})
+            started = parse_date(delivery.get("started_at"))
+            if (
+                delivery.get("stage") == "processing"
+                and started
+                and (now - started).total_seconds() >= 120
+            ):
+                delivery["stage"] = "uncertain"
+                delivery.pop("file", None)
+                enqueue(
+                    state,
+                    f"u{uid}:delivery:{delivery['nonce']}:recovery",
+                    int(uid),
+                    "⚠️ No se confirmó el resultado de tu entrega. No la reenviaré automáticamente. "
+                    "Comprueba la tarea en Canvas antes de reintentar.",
+                )
     for event in state["outbox"].values():
         if event["status"] == "sending":
             started = parse_date(event.get("started_at"))
@@ -220,7 +238,11 @@ def dispatch(
         event["started_at"] = now.isoformat()
         store.save(state)  # Si falla, NO se hace la llamada a Telegram.
         try:
-            message_id = telegram.send_message(event["chat_id"], event["text"])
+            message_id = (
+                telegram.send_message(event["chat_id"], event["text"], event["reply_markup"])
+                if event.get("reply_markup")
+                else telegram.send_message(event["chat_id"], event["text"])
+            )
         except RejectedDelivery as exc:
             healthy = False
             event["status"] = "pending"
