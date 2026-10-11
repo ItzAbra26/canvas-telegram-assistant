@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ImmediateBot, Telegram } from '../bot.mjs';
 import { InitialCanvas, CanvasError } from '../canvas.mjs';
-import { MAX_FILE_BYTES, menu } from '../interactions.mjs';
+import { MAX_FILE_BYTES, MAX_OPTIMIZE_BYTES, menu } from '../interactions.mjs';
 
 const messages = JSON.parse(readFileSync(new URL('../messages.json', import.meta.url)));
 const config = { canvas_base_url: 'https://medac.instructure.com', timezone: 'Europe/Madrid', max_users: 15, test_mode: true, recent_days: 7 };
@@ -76,9 +76,67 @@ test('receiving a document never submits until its matching confirmation', async
   await env.bot.runJob(job);
   assert.equal(env.canvas.uploads, 1); assert.equal(env.canvas.submissions, 1);
 });
+
+test('PDF and ZIP, including uppercase extensions, are accepted and confirmed explicitly', async () => {
+  for (const name of ['trabajo.pdf', 'proyecto.zip', 'TRABAJO.PDF', 'PROYECTO.ZIP']) {
+    const env = await setup();
+    await env.bot.receive(cb(1,'task:10:20'));
+    const update = msg(2); update.message.document = document({file_name:name});
+    await env.bot.receive(update);
+    assert.equal(env.store.state.users['111'].delivery.stage, 'ready');
+    assert.equal(env.store.state.users['111'].delivery.file.name, name);
+    assert.equal(env.canvas.submissions,0);
+  }
+});
+
+test('larger PDF and ZIP prepare in the background; original bypass invalidates old confirmation', async () => {
+  for (const name of ['trabajo.pdf','proyecto.zip']) {
+    const env = await setup();
+    await env.bot.receive(cb(1,'task:10:20'));
+    const update = msg(2); update.message.document = document({file_name:name,file_size:65536});
+    await env.bot.receive(update);
+    let session = env.store.state.users['111'].delivery, old = session.nonce;
+    assert.equal(session.stage,'optimizing'); assert.equal(session.optimization.status,'queued');
+    assert.match(env.telegram.sent.at(-1).text,/5 minutos/);
+    await env.bot.receive(cb(3,`confirm:${old}`));
+    assert.equal(env.canvas.submissions,0); assert.equal(env.telegram.downloads,0);
+    await env.bot.receive(cb(4,`original:${old}`));
+    session = env.store.state.users['111'].delivery;
+    assert.equal(session.stage,'ready'); assert.notEqual(session.nonce,old);
+    assert.equal(session.optimization,undefined);
+    assert.equal(await env.bot.receive(cb(5,`confirm:${old}`)),null);
+  }
+});
+
+test('20 MB preparation ceiling cannot bypass 10 MB original delivery or Canvas format restriction', async () => {
+  const env = await setup(); await env.bot.receive(cb(1,'task:10:20'));
+  const update = msg(2); update.message.document = document({file_size:MAX_FILE_BYTES+1});
+  await env.bot.receive(update);
+  const session = env.store.state.users['111'].delivery;
+  assert.equal(session.stage,'optimizing');
+  assert.ok(!env.telegram.sent.at(-1).markup.inline_keyboard.flat().some(b=>b.callback_data.startsWith('original:')));
+  await env.bot.receive(cb(3,`original:${session.nonce}`));
+  assert.equal(env.store.state.users['111'].delivery.stage,'optimizing');
+  env.store.state.users['111'].delivery.allowed_extensions=['zip'];
+  const invalid = msg(4); invalid.message.document = document({file_size:65536});
+  await env.bot.receive(invalid);
+  assert.match(env.telegram.sent.at(-1).text,/no está permitido/);
+  const excess = msg(5); excess.message.document = document({file_size:MAX_OPTIMIZE_BYTES+1});
+  await env.bot.receive(excess);
+  assert.match(env.telegram.sent.at(-1).text,/hasta 20 MB/);
+});
+
+test('fresh Canvas extension restriction stops delivery of a prepared file', async () => {
+  const env = await setup(), current = await ready(env);
+  env.canvas.assignment = async () => ({...raw(),allowed_extensions:['zip']});
+  const job = await env.bot.receive(cb(3,`confirm:${current}`));
+  await env.bot.runJob(job);
+  assert.equal(env.canvas.submissions,0); assert.equal(env.canvas.uploads,0);
+  assert.match(env.telegram.sent.at(-1).text,/formato no está permitido/);
+});
 test('replacing the file invalidates the old confirmation and rejects excess size', async () => {
   const env = await setup(), old = await ready(env);
-  const tooBig = msg(3); tooBig.message.document = document({ file_size: MAX_FILE_BYTES + 1 });
+  const tooBig = msg(3); tooBig.message.document = document({ file_size: MAX_OPTIMIZE_BYTES + 1 });
   await env.bot.receive(tooBig);
   assert.equal(env.store.state.users['111'].delivery.nonce, old);
   const newer = msg(4); newer.message.document = document({ file_name: 'nuevo.pdf' }); await env.bot.receive(newer);

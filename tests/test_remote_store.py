@@ -47,6 +47,32 @@ def test_rebase_cannot_claim_an_event_already_claimed_by_another_process(state):
         _rebase(state, local, remote)
 
 
+def test_rebase_cannot_apply_compression_claim_to_replaced_file(state):
+    state["users"]["111"]["delivery"] = {
+        "nonce": "old",
+        "stage": "optimizing",
+        "optimization": {"status": "queued"},
+    }
+    local, remote = copy.deepcopy(state), copy.deepcopy(state)
+    local["users"]["111"]["delivery"]["optimization"] = {"status": "running", "claim": "local"}
+    remote["users"]["111"]["delivery"]["nonce"] = "new"
+    with pytest.raises(StorageConflict):
+        _rebase(state, local, remote)
+
+
+def test_rebase_two_compression_claims_cannot_both_succeed(state):
+    state["users"]["111"]["delivery"] = {
+        "nonce": "same",
+        "stage": "optimizing",
+        "optimization": {"status": "queued"},
+    }
+    local, remote = copy.deepcopy(state), copy.deepcopy(state)
+    local["users"]["111"]["delivery"]["optimization"] = {"status": "running", "claim": "first"}
+    remote["users"]["111"]["delivery"]["optimization"] = {"status": "running", "claim": "second"}
+    with pytest.raises(StorageConflict):
+        _rebase(state, local, remote)
+
+
 def test_rebase_rejects_conflicting_updates_to_same_task(state):
     local, remote = copy.deepcopy(state), copy.deepcopy(state)
     state["users"]["111"]["last_sync"] = "old"

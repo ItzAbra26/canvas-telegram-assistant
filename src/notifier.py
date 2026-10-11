@@ -222,17 +222,31 @@ def recover_inflight(state: State, now: datetime | None = None) -> None:
 
 
 def dispatch(
-    state: State, store: Store, telegram: TelegramBot, now: datetime, max_messages: int = 80
+    state: State,
+    store: Store,
+    telegram: TelegramBot,
+    now: datetime,
+    max_messages: int = 80,
+    event_contains: str | None = None,
 ) -> bool:
     """Devuelve False si Telegram necesita revisión/reintento. Persiste ANTES de enviar."""
     healthy = True
     sent = 0
     for event_id, event in list(state["outbox"].items()):
+        if event_contains and event_contains not in event_id:
+            continue
         if event["status"] != "pending" or sent >= max_messages:
             continue
         not_before = parse_date(event.get("not_before"))
         if not_before and now < not_before:
             continue
+        if event.get("kind") == "file_preview":
+            session = state["users"].get(event["uid"], {}).get("delivery", {})
+            if session.get("nonce") != event["nonce"] or session.get("stage") != "ready":
+                event["status"] = "cancelled"
+                event.pop("text", None)
+                store.save(state)
+                continue
         task_event = re.match(r"^u(\d+):task:(\d+:\d+):", event_id)
         if task_event:
             record = state["users"].get(task_event[1], {}).get("tasks", {}).get(task_event[2])

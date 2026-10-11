@@ -1,0 +1,2 @@
+-r requirements.txt
+pikepdf==10.16.0

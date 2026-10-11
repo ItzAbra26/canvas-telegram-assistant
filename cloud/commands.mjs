@@ -69,7 +69,7 @@ export function render(command, user, config, now, messages, page = 1) {
   if (command === 'privacidad') return [messages.privacy];
   if (command === 'estado') {
     const connection = user.disabled ? 'Token caducado/revocado: vuelve a conectar con /start.' : user.token ? 'Cuenta conectada.' : 'Sin cuenta conectada. Usa /start.';
-    const delivery = user.delivery?.stage === 'uncertain' || user.delivery?.stage === 'processing' && Date.parse(now) - Date.parse(user.delivery.started_at) > 120000 ? '\n⚠️ Entrega sin resultado confirmado: revisa la tarea en Canvas antes de reintentar.' : user.delivery?.stage === 'processing' ? '\n📤 Entrega en curso.' : '';
+    const delivery = user.delivery?.stage === 'uncertain' || user.delivery?.stage === 'processing' && Date.parse(now) - Date.parse(user.delivery.started_at) > 120000 ? '\n⚠️ Entrega sin resultado confirmado: revisa la tarea en Canvas antes de reintentar.' : user.delivery?.stage === 'processing' ? '\n📤 Entrega en curso.' : user.delivery?.stage === 'optimizing' ? '\n🗜️ Preparando archivo sin pérdida. Se revisa cada 5 minutos; todavía no se ha entregado en Canvas.' : '';
     return [`🔌 <b>Estado</b>\n${connection}\nÚltima sincronización: ${user.last_sync ? dateLabel(user.last_sync, config.timezone) : 'Todavía sin revisión completa'}\nEnvíos inciertos: ${user.uncertain_count || 0}\nCanvas se revisa cada hora; puedes consultar ahora con /actualizar.${delivery}`];
   }
   if (!user.token) return ['Primero conecta tu propia cuenta con /start.'];

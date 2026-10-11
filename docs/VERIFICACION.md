@@ -1,12 +1,12 @@
 # Verificación de esta entrega
 
-Comprobado el 9 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/canvas-telegram-assistant), [bot compartido](https://t.me/SuperDelegado2B_bot) y [servicio Cloudflare](https://canvas-telegram-assistant.canvas-telegram-immediate.workers.dev/).
+Comprobado el 11 de octubre de 2026. [Repositorio](https://github.com/ItzAbra26/canvas-telegram-assistant), [bot compartido](https://t.me/SuperDelegado2B_bot) y [servicio Cloudflare](https://canvas-telegram-assistant.canvas-telegram-immediate.workers.dev/).
 
 | Comprobación | Resultado |
 | --- | --- |
 | Dependencias Python y Node.js | Instaladas y verificadas |
-| Python local, 3.14.2 | 149 tests correctos; cobertura 90 % |
-| Webhook, Node.js 24 | 55 tests correctos |
+| Python local, 3.14.2 | 167 tests correctos; cobertura 89 % |
+| Webhook, Node.js 24 | 60 tests correctos |
 | Ruff: lint y formato | Correctos |
 | pip check | Sin incompatibilidades |
 | npm audit --audit-level=high | 0 vulnerabilidades |
@@ -44,3 +44,5 @@ El flujo de entrega de archivos se verificó con documentos y APIs simuladas. No
 Se excluyen las tareas cuyo nombre contenga SCORM, tanto en datos nuevos como en caché e historial. Las pruebas comprueban listas, contadores, avisos pendientes y selector de entregas. También se ha corregido la concurrencia observada durante la prueba real: una lectura SQL atómica evita interrupciones entre particiones; Python combina cambios independientes sin reemplazar los mensajes o datos del webhook. Se rechazan cambios de cuenta, desconexiones, actualizaciones incompatibles y reclamaciones simultáneas del mismo envío.
 
 Las tareas vencidas sin entregar ahora se muestran como **Perdidas**, con botón y comando `/perdidas`. Las 204 pruebas verifican que quedan fuera de pendientes y urgentes, que las entregadas o exentas no se confunden con perdidas, el límite exacto del vencimiento, la reclasificación sin sincronización y tras ampliar la fecha, y la separación de contadores por asignatura. Python y JavaScript producen las mismas listas y resúmenes. La firma **Made by; AB Solutions** aparece en inicio, ayuda y resumen. Actualización publicada en Cloudflare con versión `710ab573-6e64-456a-aa64-0fd7fd1205a4`; menú de comandos registrado de nuevo en Telegram.
+
+Optimización de archivos: 227 pruebas correctas en total. Los nuevos tests generan PDF y ZIP sintéticos y verifican contenido sin pérdida, formatos y mayúsculas, páginas, ZIP con rutas, límites, PDFs protegidos, subproceso aislado, tamaños antes/después, copias ambiguas sin reenvío, cancelaciones, archivos reemplazados y reclamaciones concurrentes. Una prueba cruza el estado de preparación Python con el webhook JavaScript y verifica que solo registra la entrega simulada tras la nueva confirmación. La preparación se ejecuta en GitHub Actions cada cinco minutos y nunca registra entregas académicas. Las entregas reales de trabajos del alumno siguen pendientes de una prueba por el alumno; no se han enviado trabajos como parte de esta verificación.

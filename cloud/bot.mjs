@@ -91,6 +91,7 @@ export class ImmediateBot {
         event = null; // A failed CAS may retry after another process sent this event.
         const row = current.outbox[id];
         if (!row || row.status !== 'pending' || (row.not_before && Date.parse(row.not_before) > Date.now())) return false;
+        if (row.kind === 'file_preview' && (current.users[row.uid]?.delivery?.nonce !== row.nonce || current.users[row.uid]?.delivery?.stage !== 'ready')) { row.status = 'cancelled'; delete row.text; return; }
         const match = id.match(/^u(\d+):task:(\d+:\d+):/), record = match && current.users[match[1]]?.tasks?.[match[2]];
         if (record && (record.ignored || ignored(record.data))) { row.status = 'cancelled'; delete row.text; return; }
         row.status = 'sending'; row.started_at = new Date().toISOString(); event = structuredClone(row);
@@ -120,7 +121,7 @@ export class ImmediateBot {
     if (update.update_id < (this.config.polling_cutoff || 0) || previous.webhook_updates?.[update.update_id]) { await this.dispatch(prefix); return null; }
     const text = typeof message.text === 'string' ? message.text.trim() : '';
     const command = text.startsWith('/') ? text.split(/\s/, 1)[0].split('@', 1)[0].toLowerCase() : '';
-    if (allowed && ['/actualizar', '/entregar', '/tarea', '/confirmar', '/cancelar_entrega'].includes(command) || allowed && message.document) {
+    if (allowed && ['/actualizar', '/entregar', '/tarea', '/confirmar', '/cancelar_entrega', '/usar_original'].includes(command) || allowed && message.document) {
       return new Actions(this).receive(update, message, now);
     }
     let deleted = false, profile = null, profileError = { status: 0, reason: 'network' };

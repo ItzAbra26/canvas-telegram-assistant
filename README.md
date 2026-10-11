@@ -47,14 +47,14 @@ Para que las listas sean rápidas y legibles, el webhook muestra **8 tareas por 
 
 ### Botones, actualización inmediata y entrega de archivos
 
-En el bot alojado en Cloudflare, las respuestas incluyen botones para **Resumen, Pendientes, Hoy, Esta semana, Actualizar, Entregar tarea, Asignaturas y Ayuda**. `/actualizar` responde al comenzar, consulta tus cursos y tareas en segundo plano y envía el resumen cuando termina. Los avisos automáticos siguen calculándose cada hora; la actualización manual conserva el historial para no perder alertas de cambios o tareas nuevas. Si falla una consulta, conserva el estado anterior.
+En el bot alojado en Cloudflare, las respuestas incluyen botones para **Resumen, Pendientes, Perdidas, Últimas, Hoy, Esta semana, Actualizar, Entregar tarea, Asignaturas y Ayuda**. `/actualizar` responde al comenzar, consulta tus cursos y tareas en segundo plano y envía el resumen cuando termina. Los avisos automáticos siguen calculándose cada hora; la actualización manual conserva el historial para no perder alertas de cambios o tareas nuevas. Si falla una consulta, conserva el estado anterior.
 
 Para entregar un trabajo:
 
 1. Pulsa **Entregar tarea** o escribe `/entregar` y selecciona la tarea. La lista incluye páginas y las pendientes aparecen primero.
 2. El bot consulta Canvas para comprobar que permite `online_upload` y que está disponible para ti. Muestra la asignatura, fecha y extensiones admitidas.
-3. Envía **un archivo como documento**, con nombre y extensión, de hasta **10 MB**. Para varios archivos puedes usar un ZIP si Canvas lo permite. Las fotos comprimidas, vídeos y álbumes no se procesan como documentos.
-4. Revisa la asignatura, tarea y archivo. Se avisa si ya hay una entrega, si es de grupo o si ha vencido el plazo. La selección caduca en 15 minutos. Enviar el archivo todavía no realiza una entrega ni lo sube a Canvas.
+3. Envía **un archivo como documento**, con nombre y extensión, de hasta **20 MB si es PDF o ZIP**, o **10 MB para otros formatos**. PDF/ZIP de 64 KiB o más se preparan automáticamente en segundo plano; recibirás el resultado para confirmar. El resultado para entregar debe quedar en 10 MiB o menos. Para varios archivos puedes usar un ZIP si Canvas lo permite. Las fotos comprimidas, vídeos y álbumes no se procesan como documentos.
+4. Revisa la asignatura, tarea y archivo. Se avisa si ya hay una entrega, si es de grupo o si ha vencido el plazo. La selección caduca en 15 minutos; mientras se prepara un archivo, dispone de 60 minutos. El resultado preparado tiene una nueva confirmación de 15 minutos. Enviar el archivo todavía no realiza una entrega ni lo sube a Canvas.
 5. Pulsa **Entregar ahora**. Esa confirmación autoriza la subida y la entrega con tu cuenta. El bot vuelve a consultar la tarea antes de subir; si cambiaron el nombre, fecha, grupo o intento anterior, pide seleccionar de nuevo.
 6. Espera **Entrega confirmada por Canvas**. El bot comprueba el propietario, la tarea, el intento, la fecha y el ID del archivo registrado, y actualiza la vista de pendientes.
 
@@ -62,9 +62,9 @@ Para entregar un trabajo:
 
 El documento se descarga de Telegram en memoria y se envía a la URL firmada que proporciona Canvas; **el token de Canvas nunca se envía al almacenamiento externo**, ni se comparte con Canvas una URL que contenga el token de Telegram. D1 guarda el estado y los metadatos cifrados, no los bytes del archivo. Telegram y Canvas conservan el documento según sus servicios. Un fallo después de subir puede dejar un archivo en Canvas sin registrar la entrega.
 
-Una respuesta perdida al registrar la entrega se marca como **incierta**: no se repite automáticamente. Revisa el trabajo en Canvas antes de crear otro intento. El comprobador horario recupera las operaciones interrumpidas sin reenviarlas. Esta función usa únicamente APIs oficiales: [Submissions](https://developerdocs.instructure.com/services/canvas/resources/submissions) y [File Uploads](https://developerdocs.instructure.com/services/canvas/basics/file.file_uploads). Telegram permite actualmente descargar hasta 20 MB mediante `getFile`; aquí se limita a 10 MB para reducir memoria y tiempo en Workers Free. [Telegram getFile](https://core.telegram.org/bots/api#getfile).
+Una respuesta perdida al registrar la entrega se marca como **incierta**: no se repite automáticamente. Revisa el trabajo en Canvas antes de crear otro intento. El comprobador horario recupera las operaciones interrumpidas sin reenviarlas. Esta función usa únicamente APIs oficiales: [Submissions](https://developerdocs.instructure.com/services/canvas/resources/submissions) y [File Uploads](https://developerdocs.instructure.com/services/canvas/basics/file.file_uploads). Telegram permite actualmente descargar hasta 20 MB mediante `getFile`; el bot acepta hasta 20.000.000 bytes para preparar PDF/ZIP en un runner y limita la entrega final a 10 MiB para reducir memoria y tiempo en Workers Free. [Telegram getFile](https://core.telegram.org/bots/api#getfile).
 
-Los botones, la actualización inmediata y las entregas se implementan en el webhook de Cloudflare; el modo local Python se conserva para consultas y pruebas. En GitHub Actions no se suben trabajos ni se repiten entregas; solo se revisa Canvas y se despachan avisos.
+Los botones, la actualización inmediata y las entregas se implementan en el webhook de Cloudflare; el modo local Python se conserva para consultas y pruebas. GitHub Actions revisa Canvas y prepara los archivos; nunca registra entregas académicas ni las repite. La entrega solo se realiza en Cloudflare tras confirmar.
 
 ## 2. Ejecución sin tener tu PC encendido y coste
 
@@ -389,3 +389,19 @@ Las tareas cuyo plazo ya pasó y siguen sin entregar aparecen como **🔴 Perdid
 «Perdida» es la etiqueta del bot para un plazo vencido sin entrega; no modifica la calificación ni cierra la tarea en Canvas. Si el profesor amplía la fecha vuelve a pendientes tras actualizar. Si Canvas permite entregar fuera de plazo, sigue disponible en el selector de archivos, identificada como perdida.
 
 La firma **Made by; AB Solutions** aparece en `/start`, `/ayuda` y `/resumen`.
+
+## Optimización automática de PDF y ZIP
+
+El workflow `.github/workflows/prepare-files.yml` revisa cada 5 minutos las preparaciones guardadas en D1, además de `workflow_dispatch`. Usa los cinco Secrets existentes y el plan gratuito del repositorio público. Los comandos de Telegram siguen respondiendo inmediatamente y la revisión de tareas continúa cada hora. GitHub puede retrasar las ejecuciones: la preparación no tiene una espera máxima garantizada.
+
+- **PDF:** pikepdf/QPDF recomprime los datos internos sin reducir resolución de imágenes, cambiar páginas o convertirlo a ZIP. Conserva el original ante firmas digitales, cifrado, formularios o errores. Los PDF con imágenes ya comprimidas pueden apenas mejorar.
+- **ZIP:** recompresión DEFLATE nivel 9, conservando archivos, rutas y contenido. No borra carpetas, dependencias ni trabajos. Conserva el original si está cifrado, tiene rutas inseguras/duplicadas o supera 1.000 entradas o 100 MiB expandidos. Nunca extrae archivos a sus rutas.
+- Solo se usa una versión nueva si ahorra al menos 1 % y 1 KiB y queda dentro del límite final. Si no mejora o falla, se ofrece el original cuando cabe; si sigue siendo demasiado grande, se pide una versión menor y no se permite confirmar la entrega.
+- Se mantiene la extensión y se comprueban otra vez los formatos admitidos por Canvas al confirmar. No puede permitir PDF/ZIP en una tarea donde el profesor los haya excluido, ni aumentar la cuota de Canvas.
+- Recibes la copia optimizada y el tamaño antes/después. **Usar original** permite evitar la espera o volver al original si cabe. **Cancelar**, reemplazar el archivo o desconectar invalida la preparación y los botones anteriores. El paso final siempre exige **Entregar ahora**.
+
+Los bytes solo se usan en memoria/temporales privados del runner y en Telegram/Canvas; no se guardan en D1, commits, cachés, logs ni artefactos. El parser se ejecuta en un subproceso con tiempo limitado y, en Linux, límites de CPU, memoria y tamaño. Las copias de Telegram y las políticas del servicio siguen aplicándose. Las preparaciones interrumpidas conservan el original; una subida a Telegram sin confirmación no se repite automáticamente.
+
+Prueba local: instala `requirements-compression.txt` y ejecuta `python -m src.compression_worker` con el estado remoto configurado. Solo prepara documentos y genera los avisos para confirmar; nunca llama a la API de entregas de Canvas. Para probarlo sin documentos reales, los tests generan PDF/ZIP sintéticos y verifican páginas, contenido, rutas, confirmaciones, límites y cancelaciones.
+
+Referencias: [Canvas File Uploads](https://developerdocs.instructure.com/services/canvas/basics/file.file_uploads), [formatos de tareas](https://developerdocs.instructure.com/services/canvas/resources/assignments), [Telegram getFile](https://core.telegram.org/bots/api#getfile), [pikepdf](https://pikepdf.readthedocs.io/en/latest/api/main.html), [límites de Workers](https://developers.cloudflare.com/workers/platform/limits/).

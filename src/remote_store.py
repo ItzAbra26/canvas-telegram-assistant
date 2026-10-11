@@ -56,6 +56,16 @@ def _rebase(base: State, local: State, remote: State) -> State:
             )
         ):
             raise StorageConflict("La conexión cambió; no se aplican datos de la cuenta anterior.")
+        if old and current:
+            previous_delivery = old.get("delivery") or {}
+            wanted_delivery = (local["users"].get(uid) or {}).get("delivery") or {}
+            remote_delivery = current.get("delivery") or {}
+            if wanted_delivery != previous_delivery and remote_delivery.get(
+                "nonce"
+            ) != previous_delivery.get("nonce"):
+                raise StorageConflict(
+                    "La selección de archivo cambió; no se reemplaza con una preparación anterior."
+                )
     return _merge(base, local, remote)
 
 

@@ -24,6 +24,8 @@ export class InitialCanvas {
           const description = JSON.stringify(error).toLowerCase();
           if (description.includes('insufficient_scope') || description.includes('insufficient scope')) reason = 'scope';
           else if (description.includes('invalid access token') || description.includes('invalid_token')) reason = 'invalid-token';
+          else if (/quota|insufficient storage|not enough space/.test(description)) reason = 'quota';
+          else if (/file.*(too large|size limit)|maximum.*file.*size/.test(description)) reason = 'size';
         } catch { /* HTTP status remains useful for an incomplete response. */ }
       }
       throw new CanvasError(response.status, reason);

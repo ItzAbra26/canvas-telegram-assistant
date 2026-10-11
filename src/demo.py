@@ -27,7 +27,7 @@ class DemoTelegram:
         self.updates = []
         return result
 
-    def send_message(self, chat_id: int, text: str) -> int:
+    def send_message(self, chat_id: int, text: str, reply_markup: dict | None = None) -> int:
         self.sent.append((chat_id, text))
         return len(self.sent)
 
