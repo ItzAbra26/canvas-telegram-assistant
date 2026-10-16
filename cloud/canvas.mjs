@@ -69,9 +69,11 @@ export class InitialCanvas {
     return uploaded.id;
   }
   async submitFile(course, id, fileId, userId) {
+    const fileIds = Array.isArray(fileId) ? fileId : [fileId];
+    if (!fileIds.length || fileIds.length > 10 || fileIds.some(value => !Number.isSafeInteger(value) || value <= 0) || new Set(fileIds).size !== fileIds.length) throw new CanvasError(400, 'files');
     const url = `${this.base}/api/v1/courses/${course}/assignments/${id}/submissions`;
-    let result = (await this.request(url, 'POST', { submission: { submission_type: 'online_upload', file_ids: [fileId] } })).body;
-    const valid = body => body?.assignment_id === id && body.user_id === userId && ['submitted', 'pending_review', 'graded'].includes(body.workflow_state) && Number.isSafeInteger(body.attempt) && body.attempt > 0 && typeof body.submitted_at === 'string' && Number.isFinite(Date.parse(body.submitted_at)) && body.attachments?.some(file => file.id === fileId);
+    let result = (await this.request(url, 'POST', { submission: { submission_type: 'online_upload', file_ids: fileIds } })).body;
+    const valid = body => body?.assignment_id === id && body.user_id === userId && ['submitted', 'pending_review', 'graded'].includes(body.workflow_state) && Number.isSafeInteger(body.attempt) && body.attempt > 0 && typeof body.submitted_at === 'string' && Number.isFinite(Date.parse(body.submitted_at)) && Array.isArray(body.attachments) && fileIds.every(fileId => body.attachments.some(file => file.id === fileId));
     if (!valid(result)) {
       try { result = (await this.get(url + '/self')).body; } catch { throw new CanvasError(0, 'unconfirmed'); }
     }

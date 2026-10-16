@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { ImmediateBot, Telegram } from '../bot.mjs';
 import { InitialCanvas, CanvasError } from '../canvas.mjs';
 import { MAX_FILE_BYTES, MAX_OPTIMIZE_BYTES, menu } from '../interactions.mjs';
+import { MAX_FILES, deliveryFiles } from '../delivery.mjs';
 
 const messages = JSON.parse(readFileSync(new URL('../messages.json', import.meta.url)));
 const config = { canvas_base_url: 'https://medac.instructure.com', timezone: 'Europe/Madrid', max_users: 15, test_mode: true, recent_days: 7 };
@@ -134,15 +135,126 @@ test('fresh Canvas extension restriction stops delivery of a prepared file', asy
   assert.equal(env.canvas.submissions,0); assert.equal(env.canvas.uploads,0);
   assert.match(env.telegram.sent.at(-1).text,/formato no está permitido/);
 });
-test('replacing the file invalidates the old confirmation and rejects excess size', async () => {
+test('adding another file preserves the first, invalidates the old confirmation and rejects excess size', async () => {
   const env = await setup(), old = await ready(env);
   const tooBig = msg(3); tooBig.message.document = document({ file_size: MAX_OPTIMIZE_BYTES + 1 });
   await env.bot.receive(tooBig);
   assert.equal(env.store.state.users['111'].delivery.nonce, old);
-  const newer = msg(4); newer.message.document = document({ file_name: 'nuevo.pdf' }); await env.bot.receive(newer);
+  const newer = msg(4); newer.message.document = document({ file_name: 'nuevo.pdf', file_id: 'SECOND_FILE' }); await env.bot.receive(newer);
   assert.notEqual(env.store.state.users['111'].delivery.nonce, old);
+  assert.deepEqual(deliveryFiles(env.store.state.users['111'].delivery).map(f=>f.name), ['trabajo.pdf', 'nuevo.pdf']);
   assert.equal(await env.bot.receive(cb(5, `confirm:${old}`)), null);
   assert.equal(env.canvas.submissions, 0);
+});
+
+async function addDocument(env, id, values = {}, group = undefined) {
+  const update = msg(id); update.message.document = document(values);
+  if (group) update.message.media_group_id = group;
+  return env.bot.receive(update);
+}
+
+test('multiple PDFs sent as a document album are submitted together exactly once', async () => {
+  const env = await setup(); await env.bot.receive(cb(1, 'task:10:20'));
+  await addDocument(env, 2, {file_id:'FIRST',file_name:'memoria.pdf'}, 'ALBUM');
+  await addDocument(env, 3, {file_id:'SECOND',file_name:'anexo.pdf'}, 'ALBUM');
+  const session = env.store.state.users['111'].delivery;
+  assert.equal(deliveryFiles(session).length, 2); assert.match(env.telegram.sent.at(-1).text, /memoria.pdf[\s\S]*anexo.pdf/);
+  assert.equal(env.canvas.uploads,0); assert.equal(env.canvas.submissions,0);
+  let submitted;
+  env.canvas.upload = async () => 70 + env.canvas.uploads++;
+  env.canvas.submitFile = async (course, id, files, uid) => { submitted={course,id,files,uid}; env.canvas.submissions++; return {...receipt(),attachments:files.map(id=>({id}))}; };
+  const job = await env.bot.receive(cb(4,`confirm:${session.nonce}`));
+  await env.bot.runJob(job); await env.bot.runJob(job);
+  assert.deepEqual(submitted,{course:10,id:20,files:[70,71],uid:123});
+  assert.equal(env.canvas.uploads,2); assert.equal(env.canvas.submissions,1);
+  assert.equal(env.store.state.users['111'].delivery.files,undefined);
+  assert.match(env.telegram.sent.at(-1).text,/2 archivo/);
+});
+
+test('documents continue accumulating while a PDF is preparing and all originals can be selected', async () => {
+  const env=await setup(); await env.bot.receive(cb(1,'task:10:20'));
+  await addDocument(env,2,{file_id:'FIRST',file_size:100000});
+  await addDocument(env,3,{file_id:'SECOND',file_name:'anexo.PDF',file_size:200000});
+  let session=env.store.state.users['111'].delivery;
+  assert.equal(session.stage,'optimizing'); assert.equal(session.files.length,2);
+  assert.ok(session.files.every(entry=>entry.optimization.status==='queued'));
+  const previous=session.nonce;
+  assert.equal(await env.bot.receive(cb(4,`confirm:${previous}`)),null);
+  await env.bot.receive(cb(5,`original:${previous}`));
+  session=env.store.state.users['111'].delivery;
+  assert.equal(session.stage,'ready'); assert.equal(session.files.length,2);
+  assert.ok(session.files.every(entry=>!entry.optimization)); assert.notEqual(session.nonce,previous);
+  assert.equal(await env.bot.receive(cb(6,`confirm:${previous}`)),null);
+});
+
+test('removing an attachment preserves others and invalidates stale buttons', async () => {
+  const env=await setup(); await ready(env);
+  await addDocument(env,3,{file_id:'SECOND',file_name:'anexo.pdf'});
+  const old=env.store.state.users['111'].delivery.nonce;
+  await env.bot.receive(cb(4,`remove:${old}:0`));
+  let session=env.store.state.users['111'].delivery;
+  assert.deepEqual(deliveryFiles(session).map(f=>f.name),['anexo.pdf']);
+  await env.bot.receive(cb(5,`remove:${old}:0`));
+  assert.equal(deliveryFiles(env.store.state.users['111'].delivery).length,1);
+  const current=session.nonce; await env.bot.receive(cb(6,`remove:${current}:0`));
+  session=env.store.state.users['111'].delivery;
+  assert.equal(session.stage,'await_file'); assert.equal(session.files.length,0);
+  assert.equal(await env.bot.receive(cb(7,`confirm:${session.nonce}`)),null);
+  await addDocument(env,8,{file_id:'THIRD',file_name:'final.pdf'});
+  assert.equal(env.store.state.users['111'].delivery.files.length,1);
+});
+
+test('duplicate documents and Telegram redelivery do not add the same file twice', async () => {
+  const env=await setup(); await ready(env);
+  await addDocument(env,3); await addDocument(env,3);
+  assert.equal(deliveryFiles(env.store.state.users['111'].delivery).length,1);
+  assert.match(env.telegram.sent.at(-1).text,/ya está en la lista/);
+});
+
+test('file count and combined size limits cannot produce a partial or oversized submission', async () => {
+  const env=await setup(); await env.bot.receive(cb(1,'task:10:20'));
+  for(let i=0;i<MAX_FILES+1;i++) await addDocument(env,i+2,{file_id:`FILE_${i}`,file_name:`parte${i}.pdf`});
+  assert.equal(deliveryFiles(env.store.state.users['111'].delivery).length,MAX_FILES);
+  assert.match(env.telegram.sent.at(-1).text,/Quita uno/);
+  const big=await setup(); await big.bot.receive(cb(1,'task:10:20'));
+  for(let i=0;i<3;i++) await addDocument(big,i+2,{file_id:`BIG_${i}`,file_size:8*1024*1024});
+  let session=big.store.state.users['111'].delivery;
+  // Simulate successful background preparation which retained all originals.
+  session.stage='ready'; for(const entry of session.files) delete entry.optimization;
+  assert.equal(await big.bot.receive(cb(6,`confirm:${session.nonce}`)),null);
+  assert.equal(big.canvas.submissions,0); assert.equal(big.canvas.uploads,0);
+});
+
+test('a failed second upload never registers a partial submission', async () => {
+  const env=await setup(); await ready(env);
+  await addDocument(env,3,{file_id:'SECOND',file_name:'anexo.pdf'});
+  const session=env.store.state.users['111'].delivery;
+  env.canvas.upload=async()=>{ if(++env.canvas.uploads===2) throw new CanvasError(413,'size'); return 70; };
+  const job=await env.bot.receive(cb(4,`confirm:${session.nonce}`)); await env.bot.runJob(job);
+  assert.equal(env.canvas.uploads,2); assert.equal(env.canvas.submissions,0);
+  assert.equal(env.store.state.users['111'].delivery.stage,'failed');
+  assert.equal(env.store.state.users['111'].tasks['10:20'].data.submitted,false);
+});
+
+test('every extension is revalidated before uploading any file', async () => {
+  const env=await setup(); await ready(env);
+  await addDocument(env,3,{file_id:'SECOND',file_name:'codigo.zip'});
+  env.canvas.assignment=async()=>({...raw(),allowed_extensions:['pdf']});
+  const job=await env.bot.receive(cb(4,`confirm:${env.store.state.users['111'].delivery.nonce}`)); await env.bot.runJob(job);
+  assert.equal(env.canvas.uploads,0); assert.equal(env.canvas.submissions,0);
+});
+
+test('all attachment IDs must appear in the Canvas receipt; partial receipts stay unconfirmed', async () => {
+  let posts=0,gets=0;
+  const client=new InitialCanvas(config.canvas_base_url,'SYNTHETIC',x=>x,async(url,args)=>{
+    if(args.method==='POST') { posts++; assert.deepEqual(JSON.parse(args.body).submission.file_ids,[70,71]); }
+    else gets++;
+    return Response.json(receipt());
+  });
+  await assert.rejects(client.submitFile(10,20,[70,71],123),e=>e.reason==='unconfirmed');
+  assert.equal(posts,1); assert.equal(gets,1);
+  const complete=new InitialCanvas(config.canvas_base_url,'SYNTHETIC',x=>x,async()=>Response.json({...receipt(),attachments:[{id:70},{id:71}]}));
+  assert.equal((await complete.submitFile(10,20,[70,71],123)).attempt,1);
 });
 test('closed tasks, external tools, extensions and expiry prevent submission', async () => {
   for (const modification of [{ locked_for_user: true }, { submission_types: ['external_tool'] }]) {

@@ -205,6 +205,9 @@ def recover_inflight(state: State, now: datetime | None = None) -> None:
             ):
                 delivery["stage"] = "uncertain"
                 delivery.pop("file", None)
+                delivery.pop("files", None)
+                delivery.pop("original_file", None)
+                delivery.pop("optimization", None)
                 enqueue(
                     state,
                     f"u{uid}:delivery:{delivery['nonce']}:recovery",

@@ -1,5 +1,6 @@
 import { actionable, dateLabel, escape, ignored, lost, pack, render } from './commands.mjs';
 import { CanvasError } from './canvas.mjs';
+import { MAX_FILES, MAX_BATCH_BYTES, MAX_BATCH_INPUT, deliveryEntries, deliveryFiles, migrateFiles, fileList, deliveryButtons, preparing, fits } from './delivery.mjs';
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_OPTIMIZE_BYTES = 20_000_000;
@@ -29,6 +30,7 @@ export function normalizeUpdate(update) {
   else if ((match = value.match(/^list:([1-9]\d{0,4})$/))) text = `/entregar ${match[1]}`;
   else if ((match = value.match(/^task:(\d{1,16}):(\d{1,16})$/))) text = `/tarea ${match[1]}:${match[2]}`;
   else if ((match = value.match(/^(confirm|cancel|original):([a-f0-9]{32})$/))) text = `/${({confirm:'confirmar',cancel:'cancelar_entrega',original:'usar_original'})[match[1]]} ${match[2]}`;
+  else if ((match = value.match(/^remove:([a-f0-9]{32}):([0-9])$/))) text = `/quitar_archivo ${match[1]}:${match[2]}`;
   return { chat: cb.message?.chat, from: cb.from, message_id: cb.message?.message_id, text };
 }
 function queue(state, prefix, uid, blocks, markup = menu()) {
@@ -57,11 +59,13 @@ const errorText = error => error.reason === 'ignored' ? 'Las tareas SCORM están
   : 'No pude consultar Canvas. Conserva el archivo y vuelve a intentarlo más tarde.';
 
 function confirmation(session, now) {
-  const file = session.file;
   const warnings = (session.submitted_at || session.attempt ? '\n⚠️ Ya existe una entrega: crearás un nuevo intento.' : '') + (session.group ? '\n👥 Es una tarea de grupo: la entrega puede afectar a sus miembros.' : '') + (session.due_at && Date.parse(session.due_at) < Date.parse(now) ? '\n⏰ El plazo ha vencido: Canvas puede registrarla como entrega tardía.' : '');
-  return `📤 <b>Revisa antes de entregar</b>\n📚 ${escape(session.course_name, 120)}\n📝 ${escape(session.name, 180)}\n📎 ${escape(file.name, 220)} · ${(file.size / 1024 / 1024).toFixed(2)} MB${warnings}\n\nAl pulsar <b>Entregar ahora</b>, autorizas a subir este archivo y registrar la entrega en Canvas con tu cuenta.`;
+  const instruction = preparing(session) ? '🗜️ Preparando archivos sin pérdida. La preparación se revisa cada 5 minutos. Puedes seguir enviando documentos; espera al resultado o usa los originales.'
+    : !fits(session) ? '⚠️ Cada archivo debe quedar en 10 MB o menos y el conjunto en 20 MB o menos. Quita el archivo que exceda el límite y envía una versión más pequeña.'
+    : 'Al pulsar <b>Entregar ahora</b>, autorizas a subir todos los archivos de esta lista en una única entrega de Canvas con tu cuenta.';
+  return `📤 <b>Revisa antes de entregar</b>\n📚 ${escape(session.course_name, 120)}\n📝 ${escape(session.name, 180)}\n\n<b>Archivos añadidos: ${deliveryFiles(session).length}/${MAX_FILES}</b>\n${fileList(session)}${warnings}\n\nPuedes enviar más PDF o documentos antes de confirmar, uno a uno o en un grupo de documentos.\n${instruction}\n<b>Todavía no se ha entregado en Canvas.</b>`;
 }
-const confirmButtons = session => ({ inline_keyboard: [[{ text: '✅ Entregar ahora', callback_data: `confirm:${session.nonce}` }, { text: '❌ Cancelar', callback_data: `cancel:${session.nonce}` }]] });
+const confirmButtons = deliveryButtons;
 
 export class Actions {
   constructor(bot) { this.bot = bot; this.store = bot.store; this.config = bot.config; }
@@ -121,11 +125,26 @@ export class Actions {
         user.delivery = { nonce: nonce(), key, stage: 'await_file', expires_at: new Date(Date.parse(now) + 15 * 60000).toISOString(), connected_at: user.connected_at, name: assignment.name, course_name: data.course_name, due_at: assignment.due_at || null,
           allowed_extensions: assignment.allowed_extensions || [], group: Boolean(assignment.group_category_id), attempt: assignment.submission?.attempt ?? null, submitted_at: assignment.submission?.submitted_at ?? null };
         const extensions = user.delivery.allowed_extensions;
-        reply(`📤 <b>${escape(assignment.name, 180)}</b>\n📚 ${escape(data.course_name, 120)}\n📅 ${dateLabel(assignment.due_at, this.config.timezone)}\n\nEnvía <b>un archivo como documento</b>, PDF o ZIP de hasta 20 MB para preparar; otros formatos hasta 10 MB. La entrega final debe quedar en 10 MB o menos.${extensions.length ? '\nFormatos: ' + escape(extensions.join(', '), 150) : ''}\nNo se entregará hasta que lo confirmes. La selección caduca en 15 minutos.`, { inline_keyboard: [[{ text: '❌ Cancelar', callback_data: `cancel:${user.delivery.nonce}` }]] }); return;
+        reply(`📤 <b>${escape(assignment.name, 180)}</b>\n📚 ${escape(data.course_name, 120)}\n📅 ${dateLabel(assignment.due_at, this.config.timezone)}\n\nEnvía <b>hasta ${MAX_FILES} archivos como documentos</b>, uno a uno o en grupo. PDF o ZIP de hasta 20 MB para preparar; otros formatos hasta 10 MB. Cada archivo final debe quedar en 10 MB o menos y el conjunto en 20 MB o menos.${extensions.length ? '\nFormatos: ' + escape(extensions.join(', '), 150) : ''}\nCuando estén todos, pulsa <b>Entregar ahora</b>. No se entregará hasta que lo confirmes. La selección caduca en 15 minutos.`, { inline_keyboard: [[{ text: '❌ Cancelar', callback_data: `cancel:${user.delivery.nonce}` }]] }); return;
       }
       const session = user.delivery;
       if (!session || Date.parse(session.expires_at) <= Date.parse(now) || session.connected_at !== user.connected_at) { reply('Selecciona primero una tarea con /entregar. Si la selección ha caducado, vuelve a elegirla.'); return; }
+      if (command === '/quitar_archivo') {
+        const [buttonNonce, index] = (argument || '').split(':');
+        if (buttonNonce !== session.nonce || !/^[0-9]$/.test(index || '') || !['await_file', 'ready', 'optimizing'].includes(session.stage) || !deliveryEntries(session)[Number(index)]) { reply('Ese botón ya no corresponde a la lista actual. Usa el mensaje más reciente.'); return; }
+        migrateFiles(session).splice(Number(index), 1);
+        session.nonce = nonce(); session.stage = preparing(session) ? 'optimizing' : session.files.length ? 'ready' : 'await_file';
+        session.expires_at = new Date(Date.parse(now) + (preparing(session) ? 60 : 15) * 60000).toISOString();
+        reply(session.files.length ? confirmation(session, now) : 'No quedan archivos. Envía los documentos que quieres entregar.', confirmButtons(session)); return;
+      }
       if (command === '/usar_original') {
+        if (session.files) {
+          const originals = session.files.map(entry => entry.original_file || entry.file);
+          if (session.nonce !== argument || !['optimizing','ready'].includes(session.stage) || !session.files.some(entry => entry.original_file) || originals.some(f => f.size > MAX_FILE_BYTES) || originals.reduce((n,f) => n+f.size,0) > MAX_BATCH_BYTES) { reply('Los originales no están disponibles o superan los límites de entrega.'); return; }
+          for (const entry of session.files) { entry.file = entry.original_file || entry.file; delete entry.original_file; delete entry.optimization; }
+          session.stage = 'ready'; session.nonce = nonce(); session.expires_at = new Date(Date.parse(now) + 15 * 60000).toISOString();
+          reply('📎 Usaré los archivos originales.\n\n' + confirmation(session, now), confirmButtons(session)); return;
+        }
         if (session.nonce !== argument || !['optimizing','ready'].includes(session.stage) || !session.original_file || session.original_file.size > MAX_FILE_BYTES) { reply('Ese original no está disponible o supera los 10 MB. Vuelve a seleccionar la tarea.'); return; }
         session.file = session.original_file; delete session.optimization; delete session.original_file;
         session.stage = 'ready'; session.nonce = nonce(); session.expires_at = new Date(Date.parse(now) + 15 * 60000).toISOString();
@@ -136,25 +155,35 @@ export class Actions {
         const file = fileInfo(message.document);
         if (!file) { reply('Envía un documento con nombre y extensión: hasta 20 MB para preparar PDF o ZIP, y 10 MB para otros formatos. Para entregar, el resultado debe quedar en 10 MB o menos y Canvas debe admitirlo.'); return; }
         if (session.allowed_extensions.length && !session.allowed_extensions.map(x => String(x).toLowerCase().replace(/^\./, '')).includes(file.name.split('.').at(-1).toLowerCase())) { reply('Este formato no está permitido. Formatos admitidos: ' + escape(session.allowed_extensions.join(', '), 150)); return; }
+        const entries = deliveryEntries(session);
+        if (entries.some(entry => [entry.file.file_id, entry.original_file?.file_id].includes(file.file_id))) { reply('Ese archivo ya está en la lista. Puedes enviar otro documento diferente o confirmar la entrega.', confirmButtons(session)); return; }
+        if (entries.length >= MAX_FILES) { reply(`Ya tienes ${MAX_FILES} archivos. Quita uno con los botones antes de añadir otro.`, confirmButtons(session)); return; }
+        if (entries.reduce((n,entry) => n + (entry.original_file || entry.file).size, 0) + file.size > MAX_BATCH_INPUT) { reply('Los originales superan 50 MB en conjunto. Quita alguno o reduce su tamaño antes de añadir más.', confirmButtons(session)); return; }
+        if (entries.length || session.files) {
+          const files = migrateFiles(session), entry = { id: nonce(), file };
+          if (/\.(pdf|zip)$/i.test(file.name) && file.size >= 65536) { entry.original_file = structuredClone(file); entry.optimization = { status:'queued', requested_at:now }; }
+          files.push(entry); session.nonce = nonce(); session.stage = preparing(session) ? 'optimizing' : 'ready';
+          session.expires_at = new Date(Date.parse(now) + (preparing(session) ? 60 : 15) * 60000).toISOString();
+          reply(confirmation(session, now), confirmButtons(session)); return;
+        }
         session.file = file; session.stage = 'ready'; session.nonce = nonce();
+        session.expires_at = new Date(Date.parse(now) + 15 * 60000).toISOString();
         delete session.optimization; delete session.original_file;
         if (/\.(pdf|zip)$/i.test(file.name) && file.size >= 65536) {
           session.original_file = structuredClone(file); session.stage = 'optimizing';
           session.optimization = { status: 'queued', requested_at: now };
           session.expires_at = new Date(Date.parse(now) + 60 * 60000).toISOString();
-          const rows = file.size <= MAX_FILE_BYTES ? [[{text:'📎 Usar original',callback_data:`original:${session.nonce}`}]] : [];
-          rows.push([{text:'❌ Cancelar',callback_data:`cancel:${session.nonce}`}]);
-          reply('🗜️ <b>Preparando tu archivo</b>\nIntentaré reducirlo sin pérdida y manteniendo su formato. Si no mejora, conservaré el original. La preparación se revisa cada 5 minutos y puede tardar más si GitHub se retrasa.\n\nDespués podrás revisar el tamaño y confirmar. <b>Todavía no se ha entregado en Canvas.</b>', {inline_keyboard:rows}); return;
+          reply(confirmation(session, now), confirmButtons(session)); return;
         }
         reply(confirmation(session, now), confirmButtons(session)); return;
       }
       if (command === '/confirmar') {
         if (session.stage === 'optimizing') { reply('🗜️ El archivo sigue preparándose. Espera al mensaje de resultado o elige Usar original.'); return; }
         if (user.refresh?.stage === 'running' && Date.parse(now) - Date.parse(user.refresh.at) < 120000) { reply('Espera a que termine la actualización y vuelve a pulsar Entregar ahora.'); return; }
-        if (session.nonce !== argument || session.stage !== 'ready' || !session.file) { reply('Ese botón ha caducado o corresponde a otro archivo. Selecciona de nuevo la tarea.'); return; }
+        if (session.nonce !== argument || session.stage !== 'ready' || !fits(session) || preparing(session)) { reply('Ese botón ha caducado o la lista no está lista. Revisa el mensaje más reciente y sus límites.'); return; }
         session.stage = 'processing'; session.started_at = now;
         job = { kind: 'submit', uid, nonce: session.nonce, token: user.token, connected_at: user.connected_at, canvas_user_id: user.canvas_user_id, session: structuredClone(session) };
-        reply('📤 Estoy subiendo el archivo y registrando la entrega. Espera la confirmación de Canvas; no vuelvas a pulsar el botón.'); return;
+        reply(`📤 Estoy subiendo ${deliveryFiles(session).length} archivo(s) y registrando una única entrega. Espera la confirmación de Canvas; no vuelvas a pulsar el botón.`); return;
       }
       reply('Selecciona una tarea con /entregar o usa /actualizar.');
     });
@@ -205,11 +234,23 @@ export class Actions {
     try {
       const [course, assignmentId] = job.session.key.split(':').map(Number);
       const current = await client.assignment(course, assignmentId);
-      validateAssignment(current, job.session.file);
+      const files = deliveryFiles(job.session);
+      if (!fits(job.session) || preparing(job.session)) throw new CanvasError(400, 'size');
+      for (const file of files) validateAssignment(current, file);
       if (current.name !== job.session.name || (current.due_at || null) !== job.session.due_at || Boolean(current.group_category_id) !== job.session.group || (current.submission?.attempt ?? null) !== job.session.attempt || (current.submission?.submitted_at ?? null) !== job.session.submitted_at) throw new CanvasError(409, 'changed');
       if (job.session.due_at && Date.parse(job.session.due_at) >= Date.parse(job.session.started_at) && Date.parse(job.session.due_at) < Date.now()) throw new CanvasError(409, 'changed');
-      const blob = await this.bot.telegram.download(job.session.file, signal);
-      const fileId = await client.upload(course, assignmentId, job.session.file, blob);
+      const fileIds = [];
+      for (const file of files) {
+        const { state: latest } = await this.store.load();
+        if (!sameAccount(latest.users[job.uid], job) || latest.users[job.uid]?.delivery?.nonce !== job.nonce || latest.users[job.uid].delivery.stage !== 'processing') throw new CanvasError(409, 'cancelled');
+        const blob = await this.bot.telegram.download(file, signal);
+        fileIds.push(await client.upload(course, assignmentId, file, blob));
+      }
+      // Check again after all uploads: no partial submission if Canvas changed meanwhile.
+      const checked = await client.assignment(course, assignmentId);
+      for (const file of files) validateAssignment(checked, file);
+      if (checked.name !== current.name || (checked.due_at || null) !== (current.due_at || null) || Boolean(checked.group_category_id) !== Boolean(current.group_category_id) || (checked.submission?.attempt ?? null) !== (current.submission?.attempt ?? null) || (checked.submission?.submitted_at ?? null) !== (current.submission?.submitted_at ?? null)) throw new CanvasError(409, 'changed');
+      if (job.session.due_at && Date.parse(job.session.due_at) >= Date.parse(job.session.started_at) && Date.parse(job.session.due_at) < Date.now()) throw new CanvasError(409, 'changed');
       // Persist intent BEFORE the only submission POST. Retries never repeat it.
       let permitted = false;
       await this.store.change(state => {
@@ -220,7 +261,7 @@ export class Actions {
       });
       if (!permitted) throw new CanvasError(409, 'cancelled');
       submitStarted = true;
-      result = await client.submitFile(course, assignmentId, fileId, job.canvas_user_id);
+      result = await client.submitFile(course, assignmentId, fileIds, job.canvas_user_id);
     } catch (error) { failure = error; }
     await this.store.change(state => {
       const user = state.users[job.uid], session = user?.delivery;
@@ -228,6 +269,7 @@ export class Actions {
       const uncertain = Boolean(failure && submitStarted && (!failure.status || failure.status >= 500 || failure.status >= 300 && failure.status < 400 || failure.status === 408 || failure.reason === 'unconfirmed'));
       session.stage = failure ? uncertain ? 'uncertain' : 'failed' : 'sent';
       delete session.file;
+      delete session.files;
       delete session.original_file; delete session.optimization;
       if (failure) {
         const text = uncertain ? '⚠️ Canvas no confirmó el resultado. <b>No volveré a enviar la entrega automáticamente.</b> Abre la tarea en Canvas y comprueba si aparece antes de reintentarlo.'
@@ -239,7 +281,7 @@ export class Actions {
       const record = user.tasks[session.key];
       if (record) { record.data.submitted = true; record.data.submission_state = result.workflow_state; }
       session.submitted_at = result.submitted_at;
-      queue(state, prefix, job.uid, `✅ <b>Entrega confirmada por Canvas</b>\n📚 ${escape(session.course_name, 120)}\n📝 ${escape(session.name, 180)}\n📎 ${escape(job.session.file.name, 220)}\n📅 ${dateLabel(result.submitted_at, this.config.timezone)}\nIntento: ${result.attempt}\n\nLa tarea aparece como entregada.`, menu());
+      queue(state, prefix, job.uid, `✅ <b>Entrega confirmada por Canvas</b>\n📚 ${escape(session.course_name, 120)}\n📝 ${escape(session.name, 180)}\n${fileList(job.session)}\n📅 ${dateLabel(result.submitted_at, this.config.timezone)}\nIntento: ${result.attempt}\n\nLa tarea aparece como entregada con ${deliveryFiles(job.session).length} archivo(s).`, menu());
     }, true);
     await this.bot.dispatch(prefix);
   }

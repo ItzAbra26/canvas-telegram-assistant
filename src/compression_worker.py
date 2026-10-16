@@ -13,6 +13,7 @@ from typing import Any
 
 import requests
 
+from src.batch_preparation import run_batch
 from src.config import Config
 from src.errors import BotError, StorageConflict
 from src.file_optimizer import MAX_INPUT
@@ -218,7 +219,7 @@ def finish(
         state,
         prefix,
         int(uid),
-        f"📤 <b>Revisa antes de entregar</b>\n{base}\n📎 {e(selected['name'], 220)} · {selected['size'] / 1048576:.2f} MB\n{summary}{warnings}\n\nAl pulsar <b>Entregar ahora</b>, autorizas a subir este archivo y registrar la entrega en Canvas con tu cuenta. Todavía no se ha entregado.",
+        f"📤 <b>Revisa antes de entregar</b>\n{base}\n📎 {e(selected['name'], 220)} · {selected['size'] / 1048576:.2f} MB\n{summary}{warnings}\n\nPuedes enviar más documentos para añadirlos a la misma tarea antes de confirmar. Al pulsar <b>Entregar ahora</b>, autorizas a subir la lista de archivos y registrar una única entrega en Canvas con tu cuenta. Todavía no se ha entregado.",
         reply_markup={"inline_keyboard": buttons},
         kind="file_preview",
         uid=uid,
@@ -246,6 +247,11 @@ def run_once(
             or user.get("disabled")
             or user.get("onboarding")
         ):
+            continue
+        if "files" in session:
+            processed += run_batch(
+                store, uid, transport, optimizer, fixed_time or datetime.now(UTC)
+            )
             continue
         identity, nonce = (user["token"], user.get("connected_at")), session["nonce"]
         original = copy.deepcopy(session["original_file"])

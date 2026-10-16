@@ -115,3 +115,20 @@ test('deployment refresh selects a ready account without changing pending regist
   assert.equal(cached.users['222'].token,'SYNTHETIC');
   assert.equal((await restore(db)).users['111'].onboarding,true);
 });
+
+test('simultaneous Telegram document updates accumulate both PDFs in real encrypted D1 partitions', async () => {
+  const state=blank(), now=new Date().toISOString();
+  state.users['111']={onboarding:false,token:'SYNTHETIC',canvas_user_id:123,connected_at:now,courses:[],tasks:{},delivery:{nonce:'a'.repeat(32),key:'10:20',stage:'await_file',connected_at:now,name:'Work',course_name:'Interfaces',allowed_extensions:['pdf'],expires_at:new Date(Date.now()+900000).toISOString()}};
+  state.users['222']={onboarding:false,token:'OTHER_SYNTHETIC',canvas_user_id:456,tasks:{},courses:[]};
+  const db=await initialize(state), store=await db.scoped('111',key);
+  const telegram={sent:0,async send(){return ++this.sent;}};
+  const bot=new ImmediateBot({max_users:15,test_mode:true,timezone:'Europe/Madrid',canvas_base_url:'https://medac.instructure.com'},store,telegram,()=>{throw new Error('Receiving documents must not call Canvas');},messages);
+  const document=(id)=>({update_id:id,message:{message_id:id,chat:{id:111,type:'private'},from:{id:111},media_group_id:'GROUP',document:{file_id:`FILE_${id}`,file_name:`parte${id}.pdf`,file_size:4,mime_type:'application/pdf'}}});
+  await Promise.all([bot.receive(document(1)),bot.receive(document(2))]);
+  const result=await restore(db);
+  assert.deepEqual(result.users['111'].delivery.files.map(entry=>entry.file.name).sort(),['parte1.pdf','parte2.pdf']);
+  assert.equal(result.users['111'].delivery.stage,'ready');
+  assert.equal(result.users['222'].token,'OTHER_SYNTHETIC');
+  assert.equal(result.users['222'].delivery,undefined);
+  assert.equal((await (await db.scoped('222',key)).load()).state.users['111'].delivery,undefined);
+});

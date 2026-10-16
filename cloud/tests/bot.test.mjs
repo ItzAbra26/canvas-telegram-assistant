@@ -213,6 +213,23 @@ test('Python prepared documents cross into the webhook and submit only after the
   await bot.runJob(job);
   assert.equal(submissions,1); assert.equal((await store.load()).state.users['111'].delivery.stage,'sent');
 });
+test('multiple prepared PDFs cross Python encryption and submit as a single Canvas attempt', async () => {
+  const now=new Date().toISOString(), state=blank(), data={...assignment(),due_at:null};
+  const files=['memoria.pdf','anexo.pdf'].map((name,i)=>{const file={file_id:`SOURCE_${i}`,name,mime:'application/pdf',size:100000};return {id:String(i),file,original_file:{...file},optimization:{status:'queued',requested_at:now}};});
+  state.users['111']={token:'SYNTHETIC',canvas_user_id:123,connected_at:now,onboarding:false,initialized:true,courses:[{id:10,name:data.course_name}],tasks:{'10:1':{data,first_seen_at:now,revision:0,reminders:{}}},delivery:{stage:'optimizing',batch_id:'batch',files,nonce:'a'.repeat(32),key:'10:1',connected_at:now,expires_at:new Date(Date.now()+3600000).toISOString(),name:data.name,course_name:data.course_name,due_at:null,attempt:0,submitted_at:null,group:false}};
+  const prepared=python("import sys,json,copy; from src.compression_worker import run_once; from datetime import datetime,UTC; s=json.load(sys.stdin)\nclass Store:\n def load(self): return copy.deepcopy(s)\n def save(self,x): s.clear(); s.update(copy.deepcopy(x))\nclass Transport:\n def download(self,f): return b'x'*f['size']\n def upload(self,u,f,b): return dict(f,file_id='OPT_'+f['file_id'],size=len(b))\nrun_once(Store(),Transport(),lambda f,b:(b[:2000],'improved'),datetime.now(UTC)); print(json.dumps(s))",state);
+  const {bot,telegram,store}=await setup(prepared);
+  let uploads=0,submissions=0;
+  telegram.download=async file=>{assert.match(file.file_id,/^OPT_SOURCE_/); return new Blob([new Uint8Array(2000)]);};
+  bot.canvasFactory=()=>({async assignment(){return {id:1,course_id:10,name:data.name,due_at:null,group_category_id:null,submission_types:['online_upload'],allowed_extensions:['pdf'],submission:{attempt:0,submitted_at:null}};},async upload(){return 70+uploads++;},async submitFile(c,a,ids){assert.deepEqual(ids,[70,71]); submissions++; return {workflow_state:'submitted',submitted_at:now,attempt:1};}});
+  assert.equal(await bot.receive(update(1,111,'/confirmar '+ 'a'.repeat(32))),null);
+  assert.equal(submissions,0);
+  const job=await bot.receive(update(2,111,'/confirmar '+prepared.users['111'].delivery.nonce));
+  await bot.runJob(job); await bot.runJob(job);
+  assert.equal(uploads,2); assert.equal(submissions,1);
+  assert.equal((await store.load()).state.users['111'].delivery.stage,'sent');
+});
+
 test('messages are packed without cutting HTML and safe links stay in Canvas', () => {
   assert.equal(pack(['a'.repeat(2000), 'b'.repeat(2000)]).length, 2);
   const user = { token: 'SYNTHETIC', initialized: true, courses: [{ id: 10 }], tasks: { '10:1': { data: { ...assignment(), name: '<script> &', url: 'https://evil.example/' } } } };

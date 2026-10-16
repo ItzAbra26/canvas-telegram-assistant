@@ -29,7 +29,7 @@ El código está publicado en [ItzAbra26/canvas-telegram-assistant](https://gith
 | `/asignaturas` | Cursos activos y números separados de pendientes y perdidas por curso |
 | `/resumen` | Urgentes, esta semana, más adelante, sin fecha y próxima entrega |
 | `/actualizar` | Consulta Canvas ahora y devuelve el resumen actualizado, con un minuto entre solicitudes |
-| `/entregar` | Selecciona una tarea, recibe un documento y pide confirmar antes de entregarlo |
+| `/entregar` | Selecciona una tarea, acumula documentos y pide confirmar una única entrega con todos |
 | `/estado` | Conexión, última sincronización y envíos inciertos |
 | `/id` | Tu ID de Telegram, útil para restringir la práctica a la clase |
 | `/ayuda` | Lista de comandos |
@@ -53,12 +53,12 @@ Para entregar un trabajo:
 
 1. Pulsa **Entregar tarea** o escribe `/entregar` y selecciona la tarea. La lista incluye páginas y las pendientes aparecen primero.
 2. El bot consulta Canvas para comprobar que permite `online_upload` y que está disponible para ti. Muestra la asignatura, fecha y extensiones admitidas.
-3. Envía **un archivo como documento**, con nombre y extensión, de hasta **20 MB si es PDF o ZIP**, o **10 MB para otros formatos**. PDF/ZIP de 64 KiB o más se preparan automáticamente en segundo plano; recibirás el resultado para confirmar. El resultado para entregar debe quedar en 10 MiB o menos. Para varios archivos puedes usar un ZIP si Canvas lo permite. Las fotos comprimidas, vídeos y álbumes no se procesan como documentos.
-4. Revisa la asignatura, tarea y archivo. Se avisa si ya hay una entrega, si es de grupo o si ha vencido el plazo. La selección caduca en 15 minutos; mientras se prepara un archivo, dispone de 60 minutos. El resultado preparado tiene una nueva confirmación de 15 minutos. Enviar el archivo todavía no realiza una entrega ni lo sube a Canvas.
+3. Envía **hasta 8 archivos como documentos**, uno a uno o seleccionando varios PDF en Telegram y enviándolos como documentos. Se van añadiendo a la lista: el segundo no sustituye al primero. Cada PDF/ZIP admite hasta **20 MB para preparar**; otros formatos hasta **10 MiB**. PDF/ZIP de 64 KiB o más se preparan automáticamente en segundo plano, sin impedir que añadas otros. La entrega final permite **10 MiB por archivo y 20 MiB en conjunto**; los originales en preparación no pueden superar 50 MiB en conjunto. El límite de 8 deja margen a las llamadas de validación dentro del plan gratuito de Cloudflare. Las fotos comprimidas y vídeos no se procesan como documentos.
+4. Revisa la asignatura, tarea y **lista completa de archivos**. Puedes quitar uno con su botón y enviar otro; también puedes elegir los originales si caben. Se avisa si ya hay una entrega, si es de grupo o si ha vencido el plazo. La selección caduca en 15 minutos; mientras se prepara un archivo, dispone de 60 minutos. El resultado preparado tiene una nueva confirmación de 15 minutos. Enviar documentos todavía no realiza una entrega ni los sube a Canvas.
 5. Pulsa **Entregar ahora**. Esa confirmación autoriza la subida y la entrega con tu cuenta. El bot vuelve a consultar la tarea antes de subir; si cambiaron el nombre, fecha, grupo o intento anterior, pide seleccionar de nuevo.
-6. Espera **Entrega confirmada por Canvas**. El bot comprueba el propietario, la tarea, el intento, la fecha y el ID del archivo registrado, y actualiza la vista de pendientes.
+6. Espera **Entrega confirmada por Canvas**. El bot sube todos los archivos y hace **una sola solicitud de entrega con todos sus IDs**, comprueba que Canvas devuelve todos los adjuntos, el propietario, la tarea, el intento y la fecha, y actualiza la vista de pendientes. Si falla una subida, no registra una entrega parcial.
 
-`/cancelar` o el botón Cancelar elimina una entrega pendiente. No puede deshacer una petición que ya ha empezado ni anular un trabajo entregado en Canvas. Cambiar el archivo invalida su botón de confirmación anterior. Las tareas de texto, cuestionarios, enlaces o herramientas externas deben entregarse desde Canvas.
+`/cancelar` o el botón Cancelar elimina una entrega pendiente. No puede deshacer una petición que ya ha empezado ni anular un trabajo entregado en Canvas. Añadir, quitar o preparar un archivo invalida los botones anteriores: usa siempre la lista más reciente. Los duplicados del mismo archivo no se añaden dos veces. Las tareas de texto, cuestionarios, enlaces o herramientas externas deben entregarse desde Canvas.
 
 El documento se descarga de Telegram en memoria y se envía a la URL firmada que proporciona Canvas; **el token de Canvas nunca se envía al almacenamiento externo**, ni se comparte con Canvas una URL que contenga el token de Telegram. D1 guarda el estado y los metadatos cifrados, no los bytes del archivo. Telegram y Canvas conservan el documento según sus servicios. Un fallo después de subir puede dejar un archivo en Canvas sin registrar la entrega.
 

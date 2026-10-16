@@ -121,7 +121,7 @@ export class ImmediateBot {
     if (update.update_id < (this.config.polling_cutoff || 0) || previous.webhook_updates?.[update.update_id]) { await this.dispatch(prefix); return null; }
     const text = typeof message.text === 'string' ? message.text.trim() : '';
     const command = text.startsWith('/') ? text.split(/\s/, 1)[0].split('@', 1)[0].toLowerCase() : '';
-    if (allowed && ['/actualizar', '/entregar', '/tarea', '/confirmar', '/cancelar_entrega', '/usar_original'].includes(command) || allowed && message.document) {
+    if (allowed && ['/actualizar', '/entregar', '/tarea', '/confirmar', '/cancelar_entrega', '/usar_original', '/quitar_archivo'].includes(command) || allowed && message.document) {
       return new Actions(this).receive(update, message, now);
     }
     let deleted = false, profile = null, profileError = { status: 0, reason: 'network' };
