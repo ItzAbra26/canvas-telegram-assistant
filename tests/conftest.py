@@ -22,6 +22,7 @@ def config(tmp_path):
         "test-telegram-secret",
         Fernet.generate_key().decode(),
         state_file=tmp_path / "state.enc",
+        allowed_users=frozenset({111, 222, 2000, *range(1000, 1015)}),
     )
 
 

@@ -83,6 +83,18 @@ class BotService:
                     "El registro con tokens manuales está desactivado. Esta versión solo implementa el modo de prueba.",
                 )
                 return
+            if (
+                uid not in state["users"]
+                and not self.config.allowed_users
+                and not self.config.invite_code
+            ):
+                enqueue(
+                    state,
+                    prefix,
+                    uid_int,
+                    "El registro está cerrado hasta que el administrador configure la lista de alumnos o un código de clase.",
+                )
+                return
             if self.config.invite_code:
                 supplied = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
                 if not hmac.compare_digest(

@@ -13,7 +13,7 @@ const messages = JSON.parse(readFileSync(new URL('../messages.json', import.meta
 const key = base64(new Uint8Array(32).fill(7));
 const webhookKey = base64(new Uint8Array(32).fill(8)).replace(/=+$/, '');
 const stateKey = base64(new Uint8Array(32).fill(9)).replace(/=+$/, '');
-const config = { telegram_token: 'SYNTHETIC_TELEGRAM_TOKEN', encryption_key: key, canvas_base_url: 'https://medac.instructure.com', timezone: 'Europe/Madrid', max_users: 15, recent_days: 7, test_mode: true, allowed_users: [], invite_code: '', polling_cutoff: 0, webhook_secret: webhookKey, webhook_url: 'https://example.supabase.co/functions/v1/canvas-telegram-immediate' };
+const config = { telegram_token: 'SYNTHETIC_TELEGRAM_TOKEN', encryption_key: key, canvas_base_url: 'https://medac.instructure.com', timezone: 'Europe/Madrid', max_users: 15, recent_days: 7, test_mode: true, allowed_users: [111, 222, 2000, ...Array.from({length: 15}, (_, i) => 1000 + i)], invite_code: '', polling_cutoff: 0, webhook_secret: webhookKey, webhook_url: 'https://example.supabase.co/functions/v1/canvas-telegram-immediate' };
 const blank = () => ({ version: 1, users: {}, outbox: {}, offset: 0, commands_registered: true });
 const update = (id, uid, text) => ({ update_id: id, message: { message_id: id, from: { id: uid, is_bot: false }, chat: { id: uid, type: 'private' }, text } });
 class DB {
@@ -242,6 +242,35 @@ test('webhook rejects unauthenticated requests before parsing any student update
   for (const headers of [{}, { 'X-Telegram-Bot-Api-Secret-Token': 'wrong' }]) {
     assert.equal((await handler(new Request(config.webhook_url, { method: 'POST', headers, body: '{}' }))).status, 401);
   }
+  assert.equal(db.row.version, 0);
+});
+
+test('unlisted senders create no checkpoint or Telegram response', async () => {
+  const db = await new DB().initialize();
+  db.makeStore = () => { throw new Error('Rejected sender reached storage'); };
+  const handler = createHandler(db, messages, x => x, () => { throw new Error('Unexpected network call'); });
+  const response = await handler(new Request(config.webhook_url, { method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': webhookKey }, body: JSON.stringify(update(1, 999999, '/start')) }));
+  assert.equal(response.status, 200);
+  assert.equal(db.row.version, 0);
+});
+
+test('registration is closed without an allowlist or invitation, existing users can reconnect', async () => {
+  const {bot, store, telegram} = await setup(blank(), {allowed_users:[], invite_code:''});
+  await bot.receive(update(1, 111, '/start'));
+  assert.deepEqual((await store.load()).state.users, {});
+  assert.match(telegram.sent.at(-1).text, /registro está cerrado/);
+  await store.change(state => {state.users['111'] = {token:'SYNTHETIC',onboarding:false,tasks:{},courses:[]};});
+  await bot.receive(update(2, 111, '/start'));
+  assert.equal((await store.load()).state.users['111'].onboarding, true);
+});
+
+test('webhook body limit stops an oversized stream before reading the rest', async () => {
+  const db = await new DB().initialize(); let cancelled = false;
+  const stream = new ReadableStream({start(controller) { controller.enqueue(new Uint8Array(100001)); }, cancel() { cancelled = true; }});
+  const handler = createHandler(db, messages, x => x);
+  const request = new Request(config.webhook_url, {method:'POST',headers:{'X-Telegram-Bot-Api-Secret-Token':webhookKey},body:stream,duplex:'half'});
+  assert.equal((await handler(request)).status, 413);
+  assert.equal(cancelled, true);
   assert.equal(db.row.version, 0);
 });
 test('authenticated webhook returns promptly and sends a real Bot API shaped response', async () => {

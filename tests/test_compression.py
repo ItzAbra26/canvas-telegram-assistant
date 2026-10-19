@@ -101,6 +101,30 @@ def test_sandbox_prepares_real_zip_in_isolated_process():
     assert reason == "improved" and len(result) < len(data)
 
 
+def test_parser_does_not_inherit_credentials_or_python_injection(monkeypatch, tmp_path):
+    import subprocess
+
+    import src.compression_worker as worker
+
+    actual = subprocess.run
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "SYNTHETIC_SECRET")
+    monkeypatch.setenv("STATE_ENCRYPTION_KEY", "SYNTHETIC_KEY")
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    (tmp_path / "sitecustomize.py").write_text("raise RuntimeError('injected')", encoding="utf-8")
+
+    def guarded_run(args, **kwargs):
+        assert "TELEGRAM_BOT_TOKEN" not in kwargs["env"]
+        assert "STATE_ENCRYPTION_KEY" not in kwargs["env"]
+        assert "PYTHONPATH" not in kwargs["env"]
+        assert args[1] == "-I"
+        assert str(kwargs["cwd"]) != str(tmp_path)
+        return actual(args, **kwargs)
+
+    monkeypatch.setattr(worker.subprocess, "run", guarded_run)
+    candidate, reason = sandbox_optimize({"name": "task.zip"}, archive())
+    assert reason == "improved" and candidate.startswith(b"PK")
+
+
 def queued(state, now, size=100000):
     file = {
         "file_id": "SYNTHETIC_SOURCE",

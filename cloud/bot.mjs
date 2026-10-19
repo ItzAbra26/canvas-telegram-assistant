@@ -115,6 +115,8 @@ export class ImmediateBot {
     const message = normalizeUpdate(update), chat = message.chat || {}, sender = message.from || {};
     const uid = String(sender.id);
     const allowed = chat.type === 'private' && Number.isSafeInteger(sender.id) && sender.id > 0 && chat.id === sender.id && !sender.is_bot && (!this.config.allowed_users?.length || this.config.allowed_users.includes(sender.id));
+    // Ignore rejected senders before loading or writing any per-user checkpoint.
+    if (!allowed) return null;
     const prefix = `update:${update.update_id}`;
     if (allowed && update.callback_query?.id) await this.telegram.answer?.(update.callback_query.id);
     const { state: previous } = await this.store.load();
@@ -145,6 +147,7 @@ export class ImmediateBot {
       if (message.forward_origin) { reply('No acepto tokens reenviados. Usa /start y envía tu propio token directamente.'); return; }
       if (command === '/start') {
         if (!this.config.test_mode) { reply('El registro con tokens manuales está desactivado.'); return; }
+        if (!state.users[uid] && !this.config.allowed_users?.length && !this.config.invite_code) { reply('El registro está cerrado hasta que el administrador configure la lista de alumnos o un código de clase.'); return; }
         if (this.config.invite_code && text.slice(text.indexOf(' ') + 1) !== this.config.invite_code) { reply('Para entrar en la práctica usa /start seguido del código de clase que te ha dado el profesor.'); return; }
         if (!state.users[uid] && Object.keys(state.users).length >= this.config.max_users) { reply('La práctica ha alcanzado el límite de usuarios. Consulta al profesor.'); return; }
         user = state.users[uid] ||= { onboarding: false, tasks: {}, courses: [] };

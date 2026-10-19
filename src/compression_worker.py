@@ -2,6 +2,7 @@
 
 import copy
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -121,12 +122,20 @@ def sandbox_optimize(file: dict[str, Any], data: bytes) -> tuple[bytes, str]:
             result = subprocess.run(  # noqa: S603 — fixed interpreter/module, private paths, no shell
                 [
                     sys.executable,
-                    "-m",
-                    "src.file_optimizer",
+                    "-I",
+                    str(Path(__file__).with_name("file_optimizer.py").resolve()),
                     str(source),
                     str(output),
                     extension,
                 ],
+                # Do not pass bot/state credentials, Python injection variables or the
+                # repository working directory to an untrusted document parser.
+                env={
+                    name: os.environ[name]
+                    for name in ("SYSTEMROOT", "WINDIR")
+                    if name in os.environ
+                },
+                cwd=directory,
                 capture_output=True,
                 timeout=30,
                 check=True,

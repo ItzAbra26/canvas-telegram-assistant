@@ -192,11 +192,16 @@ def test_workflow_structure_and_persistence():
     assert workflow["permissions"]["contents"] == "read"
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     job = workflow["jobs"]["check"]
-    assert job["env"]["STORAGE_BACKEND"] == "remote"
-    assert job["env"]["DELIVERY_MODE"] == "webhook"
-    assert job["env"]["MAX_USERS"] == "15"
-    assert job["env"]["STATE_ENCRYPTION_KEY"] == "${{ secrets.STATE_ENCRYPTION_KEY }}"
-    assert job["env"]["STATE_API_KEY"] == "${{ secrets.STATE_API_KEY }}"
+    runtime = next(
+        step for step in job["steps"] if "python -m src.main --once" in step.get("run", "")
+    )
+    assert "env" not in job
+    assert runtime["env"]["STORAGE_BACKEND"] == "remote"
+    assert runtime["env"]["DELIVERY_MODE"] == "webhook"
+    assert runtime["env"]["MAX_USERS"] == "15"
+    assert runtime["env"]["STATE_ENCRYPTION_KEY"] == "${{ secrets.STATE_ENCRYPTION_KEY }}"
+    assert runtime["env"]["STATE_API_KEY"] == "${{ secrets.STATE_API_KEY }}"
+    assert all("env" not in step for step in job["steps"] if step is not runtime)
     assert any(
         "python -m src.main --once --sync-only" in step.get("run", "") for step in job["steps"]
     )

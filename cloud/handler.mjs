@@ -3,7 +3,25 @@ import { ImmediateBot, StateStore, Telegram, TelegramError } from './bot.mjs';
 import { InitialCanvas } from './canvas.mjs';
 import { Conflict, validPart } from './d1-db.mjs';
 import { pack, render } from './commands.mjs';
-import { menu } from './interactions.mjs';
+import { menu, normalizeUpdate } from './interactions.mjs';
+
+async function readBody(request, limit) {
+  const declared = request.headers.get('content-length');
+  if (declared !== null && Number(declared) > limit) return null;
+  const reader = request.body?.getReader();
+  if (!reader) return '';
+  const chunks = []; let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  return new Blob(chunks).text();
+}
 
 export function createHandler(db, messages, cleanHTML, fetcher = fetch, background = promise => promise.catch(() => {})) {
   return async request => {
@@ -20,8 +38,8 @@ export function createHandler(db, messages, cleanHTML, fetcher = fetch, backgrou
       // Only the caller holds the wrapping key. Database backups hold ciphertext + hashes.
       const config = await open(runtime[kind + '_config'], key);
       if (db.partitioned) config.page_size = 8;
-      const raw = await request.text();
-      if (raw.length > (webhookKey ? 100000 : 11000000)) return new Response('Too large', { status: 413 });
+      const raw = await readBody(request, webhookKey ? 100000 : 11000000);
+      if (raw === null) return new Response('Too large', { status: 413 });
       let body;
       try { body = JSON.parse(raw); } catch { return new Response('Invalid JSON', { status: 400 }); }
       const telegram = new Telegram(config.telegram_token, fetcher);
@@ -109,6 +127,8 @@ export function createHandler(db, messages, cleanHTML, fetcher = fetch, backgrou
         return new Response('Unknown action', { status: 400 });
       }
       if (!Number.isSafeInteger(body?.update_id)) return new Response('Invalid update', { status: 400 });
+      const message = normalizeUpdate(body), sender = message.from, chat = message.chat;
+      if (!Number.isSafeInteger(sender?.id) || sender.id <= 0 || sender.is_bot || chat?.type !== 'private' || chat.id !== sender.id || config.allowed_users?.length && !config.allowed_users.includes(sender.id)) return Response.json({ ok: true });
       const store = db.makeStore ? await db.makeStore(config, config.encryption_key, body) : new StateStore(db, config.encryption_key);
       const bot = new ImmediateBot(config, store, telegram, token => new InitialCanvas(config.canvas_base_url, token, cleanHTML, fetcher), messages);
       const connection = await bot.receive(body);

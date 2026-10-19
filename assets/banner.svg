@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="270" viewBox="0 0 1200 270" role="img" aria-labelledby="title desc">
+<title id="title">Canvas Telegram Assistant</title><desc id="desc">Tus tareas, avisos y entregas desde Telegram.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1220"/><stop offset="1" stop-color="#1a2c48"/></linearGradient><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#94a3b8" stroke-opacity=".07"/></pattern></defs>
+<style>@keyframes flow{to{stroke-dashoffset:-80}}.flow{animation:flow 5s linear infinite}@media(prefers-reduced-motion:reduce){.flow{animation:none}}</style>
+<rect width="1200" height="270" rx="20" fill="url(#bg)"/><rect width="1200" height="270" rx="20" fill="url(#grid)"/>
+<g font-family="Segoe UI,Arial,sans-serif"><text x="52" y="56" font-size="15" font-family="monospace" letter-spacing="3" fill="#5eead4">CLASSROOM AUTOMATION / API INTEGRATION</text><text x="48" y="124" font-size="46" font-weight="700" fill="#f1f5f9">Canvas Telegram Assistant</text><text x="52" y="173" font-size="21" fill="#b8c9e0">Tus tareas, avisos y entregas desde Telegram.</text><text x="52" y="225" font-size="15" fill="#5eead4">ABRAHAM AMAR / ITZABRA26</text></g>
+<path class="flow" d="M920 45H1125V215H955V125H1165" stroke="#5eead4" stroke-width="2" stroke-opacity=".5" stroke-dasharray="8 12" fill="none"/><g fill="#5eead4"><circle cx="1125" cy="45" r="5"/><circle cx="955" cy="215" r="5"/><circle cx="1165" cy="125" r="5"/></g></svg>

@@ -99,6 +99,7 @@ def run_demo() -> int:
             "DEMO_BOT",
             Fernet.generate_key().decode(),
             state_file=Path(folder) / "state.enc",
+            allowed_users=frozenset({111, 222}),
         )
         store = LocalStore(config.state_file, config.encryption_key)
         telegram = DemoTelegram()

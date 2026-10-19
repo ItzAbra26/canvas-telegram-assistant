@@ -107,6 +107,21 @@ def test_allowlist_and_invite(config, store, telegram, snapshot, now):
     assert all(chat == 111 for chat, _ in telegram.sent)
 
 
+def test_registration_is_closed_without_class_access_control(
+    config, store, telegram, snapshot, now
+):
+    config = replace(config, allowed_users=frozenset(), invite_code="")
+    telegram.updates = [
+        demo_update(1, 111, "/start"),
+        demo_update(2, 111, "SYNTHETIC_PRIVATE_TOKEN"),
+    ]
+    factory = factory_with(snapshot)
+    BotService(config, store, telegram, factory).cycle(now)
+    assert not store.load()["users"]
+    assert not factory.calls
+    assert any("registro está cerrado" in text for _, text in telegram.sent)
+
+
 def test_bad_token_not_persisted(config, store, telegram, snapshot, now):
     token = "INVALID_CANVAS_TEST_TOKEN"
     telegram.updates = [demo_update(1, 111, "/start"), demo_update(2, 111, token)]
