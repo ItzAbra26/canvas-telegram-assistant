@@ -9,7 +9,7 @@
     "deploy": "wrangler deploy",
     "check": "wrangler deploy --dry-run"
   },
-  "dependencies": { "html-to-text": "9.0.5" },
+  "dependencies": { "html-to-text": "10.0.1" },
   "devDependencies": { "wrangler": "4.148.0" },
   "overrides": { "sharp": "0.35.5" }
 }
