@@ -9,7 +9,7 @@ const sameAccount = (user, job) => user?.token === job.token && user.connected_a
 const activeTasks = (user, now) => {
   const courses = new Set((user.courses || []).map(c => c.id));
   const rank = a => actionable(a, now) ? 0 : lost(a, now) ? 1 : 2;
-  return Object.values(user.tasks || {}).filter(r => !r.deleted && !r.ignored && !ignored(r.data) && courses.has(r.data.course_id) && r.data.requires_submission)
+  return Object.values(user.tasks || {}).filter(r => !r.deleted && !r.ignored && !r.unavailable && !ignored(r.data) && courses.has(r.data.course_id) && r.data.requires_submission)
     .map(r => r.data).sort((a, b) => rank(a) - rank(b) || (Date.parse(a.due_at) || Infinity) - (Date.parse(b.due_at) || Infinity));
 };
 export function menu() {
@@ -77,7 +77,7 @@ export class Actions {
     const command = rawCommand.toLowerCase().split('@')[0];
     let assignment = null, selectionError = null;
     const key = /^\d{1,16}:\d{1,16}$/.test(argument || '') ? argument : null;
-    if (this.config.test_mode && command === '/tarea' && key && prior.token && !prior.disabled && !prior.onboarding && prior.tasks?.[key] && !prior.tasks[key].deleted && !prior.tasks[key].ignored && !ignored(prior.tasks[key].data) && (prior.courses || []).some(c => c.id === prior.tasks[key].data.course_id) && prior.delivery?.stage !== 'processing') {
+    if (this.config.test_mode && command === '/tarea' && key && prior.token && !prior.disabled && !prior.onboarding && prior.tasks?.[key] && !prior.tasks[key].deleted && !prior.tasks[key].ignored && !prior.tasks[key].unavailable && !ignored(prior.tasks[key].data) && (prior.courses || []).some(c => c.id === prior.tasks[key].data.course_id) && prior.delivery?.stage !== 'processing') {
       try { assignment = await this.bot.canvasFactory(prior.token).assignment(...key.split(':').map(Number)); validateAssignment(assignment); }
       catch (error) { assignment = null; selectionError = error; }
     }
@@ -120,7 +120,7 @@ export class Actions {
         reply(tasks.length ? `📤 <b>Selecciona una tarea</b>\nPágina ${page} de ${total}. Primero aparecen las pendientes.\nCanvas comprobará si admite archivos al seleccionarla.` : 'No hay tareas con entrega en tus cursos activos. Prueba /actualizar.', { inline_keyboard: rows }); return;
       }
       if (command === '/tarea') {
-        if (!sameAccount(user, { token: prior.token, connected_at: prior.connected_at }) || !assignment || !user.tasks?.[key] || user.tasks[key].deleted || !(user.courses || []).some(c => c.id === user.tasks[key].data.course_id)) { reply(selectionError ? errorText(selectionError) : 'No encuentro esa tarea en tu cuenta. Vuelve a seleccionarla con /entregar.'); return; }
+        if (!sameAccount(user, { token: prior.token, connected_at: prior.connected_at }) || !assignment || !user.tasks?.[key] || user.tasks[key].deleted || user.tasks[key].unavailable || !(user.courses || []).some(c => c.id === user.tasks[key].data.course_id)) { reply(selectionError ? errorText(selectionError) : 'No encuentro esa tarea en tu cuenta. Vuelve a seleccionarla con /entregar.'); return; }
         const data = user.tasks[key].data;
         user.delivery = { nonce: nonce(), key, stage: 'await_file', expires_at: new Date(Date.parse(now) + 15 * 60000).toISOString(), connected_at: user.connected_at, name: assignment.name, course_name: data.course_name, due_at: assignment.due_at || null,
           allowed_extensions: assignment.allowed_extensions || [], group: Boolean(assignment.group_category_id), attempt: assignment.submission?.attempt ?? null, submitted_at: assignment.submission?.submitted_at ?? null };
@@ -210,7 +210,7 @@ export class Actions {
         const key = `${a.course_id}:${a.id}`, record = user.tasks[key];
         if (record) {
           record.hourly_data ||= structuredClone(record.data);
-          record.data = a; record.deleted = false; delete record.ignored;
+          record.data = a; record.deleted = false; delete record.ignored; delete record.unavailable;
         } else {
           const remaining = a.due_at ? (Date.parse(a.due_at) - Date.parse(now)) / 1000 : null;
           const reminders = {};

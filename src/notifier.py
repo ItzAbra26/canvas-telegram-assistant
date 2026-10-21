@@ -65,10 +65,15 @@ def reconcile(state: State, uid: str, snapshot: Snapshot, config: Config, now: d
             previous[key]["ignored"] = True
             previous[key]["data"]["name"] = name
     current = {a.key: a for a in snapshot.assignments if not ignored_assignment(a.name)}
+    for key in snapshot.unavailable:
+        if key in previous:
+            previous[key]["unavailable"] = True
+            previous[key]["missing_count"] = 0
     for key, a in current.items():
         old = previous.get(key)
         if old:
             old.pop("ignored", None)
+            old.pop("unavailable", None)
         remaining = (parse_date(a.due_at) - now).total_seconds() if a.due_at else None
         if old is None or old.pop("manual_unnotified", False):
             record = {
@@ -253,7 +258,11 @@ def dispatch(
         task_event = re.match(r"^u(\d+):task:(\d+:\d+):", event_id)
         if task_event:
             record = state["users"].get(task_event[1], {}).get("tasks", {}).get(task_event[2])
-            if record and (record.get("ignored") or ignored_assignment(record["data"]["name"])):
+            if record and (
+                record.get("ignored")
+                or record.get("unavailable")
+                or ignored_assignment(record["data"]["name"])
+            ):
                 event["status"] = "cancelled"
                 event.pop("text", None)
                 store.save(state)
@@ -264,6 +273,7 @@ def dispatch(
             if (
                 not record
                 or record.get("deleted")
+                or record.get("unavailable")
                 or record["data"]["course_id"] not in active_ids
                 or record["data"]["due_at"] != event["due_at"]
                 or not Assignment(**record["data"]).pending

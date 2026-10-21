@@ -103,6 +103,92 @@ def test_missing_assignment_confirmed_individually(raw_task):
 
 
 @responses.activate
+def test_hidden_old_assignment_403_does_not_abort_visible_tasks(raw_task):
+    previous = {
+        "10:1": {
+            "data": Assignment.from_api(
+                raw_task, Course(10, "Curso"), "https://canvas.example.edu"
+            ).to_dict()
+        }
+    }
+    visible = {**raw_task, "id": 2, "name": "Tarea visible"}
+    responses.get(BASE + "/courses", json=[{"id": 10, "name": "Curso"}])
+    responses.get(BASE + "/courses/10/assignments", json=[visible])
+    responses.get(
+        BASE + "/courses/10/assignments/1",
+        status=403,
+        json={"errors": [{"message": "unauthorized"}]},
+    )
+    client = CanvasClient("https://canvas.example.edu", "test")
+    for _ in range(2):
+        result = client.snapshot(previous)
+        assert result.unavailable == {"10:1"}
+        assert not result.missing
+        assert [a.id for a in result.assignments] == [2]
+    assert (
+        len(responses.calls) == 6
+    )  # Recheck visibility rather than permanently ignoring the task.
+
+
+@responses.activate
+@pytest.mark.parametrize("path", ["courses", "courses/10/assignments"])
+def test_forbidden_full_list_still_fails_instead_of_committing_empty_snapshot(path):
+    if path != "courses":
+        responses.get(BASE + "/courses", json=[{"id": 10, "name": "Curso"}])
+    responses.get(BASE + "/" + path, status=403)
+    with pytest.raises(APIError) as error:
+        CanvasClient("https://canvas.example.edu", "test").snapshot({})
+    assert error.value.status == 403
+
+
+@responses.activate
+@pytest.mark.parametrize("status", [401, 429, 503])
+def test_other_errors_on_old_assignment_are_not_treated_as_loss_of_visibility(raw_task, status):
+    previous = {
+        "10:1": {
+            "data": Assignment.from_api(
+                raw_task, Course(10, "Curso"), "https://canvas.example.edu"
+            ).to_dict()
+        }
+    }
+    responses.get(BASE + "/courses", json=[{"id": 10, "name": "Curso"}])
+    responses.get(BASE + "/courses/10/assignments", json=[])
+    responses.get(BASE + "/courses/10/assignments/1", status=status)
+    with pytest.raises(APIError) as error:
+        CanvasClient("https://canvas.example.edu", "test").snapshot(previous)
+    assert error.value.status == status
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    "body,headers",
+    [
+        ("Access denied", {"Content-Type": "text/html"}),
+        ('{"errors":[{"message":"insufficient_scope"}]}', {"Content-Type": "application/json"}),
+        (
+            '{"status":"unauthorized"}',
+            {"Content-Type": "application/json", "cf-mitigated": "challenge"},
+        ),
+        ("incomplete", {"Content-Type": "application/json"}),
+    ],
+)
+def test_server_filters_and_scope_errors_do_not_hide_old_assignments(raw_task, body, headers):
+    previous = {
+        "10:1": {
+            "data": Assignment.from_api(
+                raw_task, Course(10, "Curso"), "https://canvas.example.edu"
+            ).to_dict()
+        }
+    }
+    responses.get(BASE + "/courses", json=[{"id": 10, "name": "Curso"}])
+    responses.get(BASE + "/courses/10/assignments", json=[])
+    responses.get(BASE + "/courses/10/assignments/1", status=403, body=body, headers=headers)
+    with pytest.raises(APIError) as error:
+        CanvasClient("https://canvas.example.edu", "test").snapshot(previous)
+    assert error.value.status == 403
+
+
+@responses.activate
 def test_truncated_list_restores_task_from_individual_get(raw_task):
     previous = {
         "10:1": {

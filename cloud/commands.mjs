@@ -70,11 +70,12 @@ export function render(command, user, config, now, messages, page = 1) {
   if (command === 'estado') {
     const connection = user.disabled ? 'Token caducado/revocado: vuelve a conectar con /start.' : user.token ? 'Cuenta conectada.' : 'Sin cuenta conectada. Usa /start.';
     const delivery = user.delivery?.stage === 'uncertain' || user.delivery?.stage === 'processing' && Date.parse(now) - Date.parse(user.delivery.started_at) > 120000 ? '\n⚠️ Entrega sin resultado confirmado: revisa la tarea en Canvas antes de reintentar.' : user.delivery?.stage === 'processing' ? '\n📤 Entrega en curso.' : user.delivery?.stage === 'optimizing' ? '\n🗜️ Preparando archivo sin pérdida. Se revisa cada 5 minutos; todavía no se ha entregado en Canvas.' : '';
-    return [`🔌 <b>Estado</b>\n${connection}\nÚltima sincronización: ${user.last_sync ? dateLabel(user.last_sync, config.timezone) : 'Todavía sin revisión completa'}\nEnvíos inciertos: ${user.uncertain_count || 0}\nCanvas se revisa cada hora; puedes consultar ahora con /actualizar.${delivery}`];
+    const unavailable = Object.values(user.tasks || {}).filter(r=>r.unavailable).length;
+    return [`🔌 <b>Estado</b>\n${connection}\nÚltima sincronización: ${user.last_sync ? dateLabel(user.last_sync, config.timezone) : 'Todavía sin revisión completa'}\nEnvíos inciertos: ${user.uncertain_count || 0}\nCanvas se revisa cada hora; puedes consultar ahora con /actualizar.${delivery}${unavailable ? `\nTareas ya no accesibles en Canvas: ${unavailable}. Su historial se conserva.` : ''}`];
   }
   if (!user.token) return ['Primero conecta tu propia cuenta con /start.'];
   const active = new Set((user.courses || []).map(c => c.id));
-  const tasks = Object.values(user.tasks || {}).filter(r => !r.deleted && !r.ignored && !ignored(r.data) && active.has(r.data.course_id)).map(r => r.data);
+  const tasks = Object.values(user.tasks || {}).filter(r => !r.deleted && !r.ignored && !r.unavailable && !ignored(r.data) && active.has(r.data.course_id)).map(r => r.data);
   const sort = rows => [...rows].sort((a, b) => (stamp(a.due_at) ?? Infinity) - (stamp(b.due_at) ?? Infinity) || a.course_name.localeCompare(b.course_name) || a.name.localeCompare(b.name));
   const todo = sort(tasks.filter(a => actionable(a, now)));
   const missed = sort(tasks.filter(a => lost(a, now)));

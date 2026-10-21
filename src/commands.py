@@ -69,6 +69,7 @@ def assignments_for(user: dict[str, Any]) -> list[Assignment]:
         for record in user.get("tasks", {}).values()
         if not record.get("deleted")
         and not record.get("ignored")
+        and not record.get("unavailable")
         and not ignored_assignment(record["data"]["name"])
         and record["data"]["course_id"] in active
     ]
@@ -100,8 +101,16 @@ def render_command(command: str, user: dict[str, Any], config: Config, now: date
             else "Sin cuenta conectada. Usa /start."
         )
         uncertain = user.get("uncertain_count", 0)
+        unavailable = sum(
+            bool(record.get("unavailable")) for record in user.get("tasks", {}).values()
+        )
         return [
             f"🔌 <b>Estado</b>\n{connection}\nÚltima sincronización: {date_label(user.get('last_sync'), config.timezone)}\nEnvíos inciertos: {uncertain}. Si los hay, consulta al administrador."
+            + (
+                f"\nTareas ya no accesibles en Canvas: {unavailable}. Su historial se conserva."
+                if unavailable
+                else ""
+            )
         ]
     if not user.get("token"):
         return ["Primero conecta tu propia cuenta con /start."]

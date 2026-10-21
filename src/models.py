@@ -105,3 +105,4 @@ class Snapshot:
     assignments: list[Assignment]
     missing: set[str]
     ignored: dict[str, str] = dataclass_field(default_factory=dict)
+    unavailable: set[str] = dataclass_field(default_factory=set)

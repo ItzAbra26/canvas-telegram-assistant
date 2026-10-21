@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 
+from src.commands import assignments_for, render_command
 from src.errors import AmbiguousDelivery, RejectedDelivery, StorageError
 from src.models import Snapshot
 from src.notifier import dispatch, enqueue, reconcile, recover_inflight
@@ -11,6 +12,50 @@ from src.notifier import dispatch, enqueue, reconcile, recover_inflight
 
 def messages(state):
     return [e.get("text", "") for e in state["outbox"].values()]
+
+
+def test_unavailable_assignment_keeps_history_cancels_notices_and_recovers(
+    state, snapshot, task, config, now, store, telegram
+):
+    reconcile(state, "111", snapshot, config, now)
+    record = state["users"]["111"]["tasks"][task.key]
+    original_data = copy.deepcopy(record["data"])
+    record["missing_count"] = 1
+    reminder_id = f"u111:task:{task.key}:reminder:0:24h"
+    enqueue(
+        state,
+        reminder_id,
+        111,
+        "Old inaccessible reminder",
+        kind="reminder",
+        uid="111",
+        task_key=task.key,
+        due_at=task.due_at,
+    )
+    refreshed = now + timedelta(hours=1)
+    reconcile(
+        state,
+        "111",
+        Snapshot(snapshot.courses, [], set(), unavailable={task.key}),
+        config,
+        refreshed,
+    )
+    user = state["users"]["111"]
+    assert user["last_sync"] == refreshed.isoformat() and user["sync_error"] is None
+    assert record["unavailable"] and not record["deleted"]
+    assert record["data"] == original_data and record["missing_count"] == 0
+    assert assignments_for(user) == []
+    assert (
+        "Tareas ya no accesibles en Canvas: 1"
+        in render_command("estado", user, config, refreshed)[0]
+    )
+    assert not any("TAREA ELIMINADA" in text for text in messages(state))
+    assert dispatch(state, store, telegram, refreshed)
+    assert state["outbox"][reminder_id]["status"] == "cancelled"
+    assert all("Old inaccessible reminder" not in text for _, text in telegram.sent)
+    reconcile(state, "111", snapshot, config, refreshed + timedelta(hours=1))
+    assert not record.get("unavailable")
+    assert assignments_for(user) == [task]
 
 
 def test_scorm_never_alerts_and_pending_legacy_notices_are_cancelled(

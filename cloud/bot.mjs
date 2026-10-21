@@ -93,7 +93,7 @@ export class ImmediateBot {
         if (!row || row.status !== 'pending' || (row.not_before && Date.parse(row.not_before) > Date.now())) return false;
         if (row.kind === 'file_preview' && (current.users[row.uid]?.delivery?.nonce !== row.nonce || current.users[row.uid]?.delivery?.stage !== 'ready')) { row.status = 'cancelled'; delete row.text; return; }
         const match = id.match(/^u(\d+):task:(\d+:\d+):/), record = match && current.users[match[1]]?.tasks?.[match[2]];
-        if (record && (record.ignored || ignored(record.data))) { row.status = 'cancelled'; delete row.text; return; }
+        if (record && (record.ignored || record.unavailable || ignored(record.data))) { row.status = 'cancelled'; delete row.text; return; }
         row.status = 'sending'; row.started_at = new Date().toISOString(); event = structuredClone(row);
       });
       if (!event) continue;

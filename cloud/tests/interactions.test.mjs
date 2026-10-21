@@ -343,6 +343,25 @@ test('Canvas skips SCORM even when its submission data is missing', async () => 
   assert.deepEqual(snapshot.ignored,{'10:20':'SCORM unidad 1'});
 });
 
+test('inaccessible old tasks are hidden, cannot alert or submit, and recover when visible again', async () => {
+  const env=await setup(); env.store.state.users['111'].tasks['10:20'].unavailable=true;
+  await env.bot.receive(msg(1,'/resumen'));
+  assert.match(env.telegram.sent.at(-1).text,/Total pendientes: 0/);
+  await env.bot.receive(msg(2,'/estado'));
+  assert.match(env.telegram.sent.at(-1).text,/no accesibles en Canvas: 1/);
+  await env.bot.receive(cb(3,'list:1'));
+  assert.match(env.telegram.sent.at(-1).text,/No hay tareas/);
+  await env.bot.receive(cb(4,'task:10:20'));
+  assert.equal(env.canvas.reads,0);
+  env.store.state.outbox['u111:task:10:20:new']={status:'pending',chat_id:111,text:'Inaccessible notice'};
+  await env.bot.dispatch('u111:task:10:20:new');
+  assert.equal(env.store.state.outbox['u111:task:10:20:new'].status,'cancelled');
+  const job=await env.bot.receive(msg(5,'/actualizar')); await env.bot.runJob(job);
+  assert.equal(env.store.state.users['111'].tasks['10:20'].unavailable,undefined);
+  await env.bot.receive(msg(6,'/pendientes'));
+  assert.match(env.telegram.sent.at(-1).text,/Práctica/);
+});
+
 test('pending token renewal still allows refreshing the previously connected account', async () => {
   const env = await setup(); env.store.state.users['111'].onboarding = true;
   const job = await env.bot.receive(msg(1,'/actualizar'));

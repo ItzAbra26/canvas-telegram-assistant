@@ -1,9 +1,37 @@
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
+from requests import Response
+
 from src.errors import APIError
 from src.http_client import HTTPClient
 from src.models import Assignment, Course, Snapshot, ignored_assignment
+
+
+def visibility_denied(response: Response) -> bool:
+    """Recognize Canvas's own permission response, not an HTML/network filter."""
+    if (
+        response.status_code != 403
+        or response.headers.get("cf-mitigated") == "challenge"
+        or not response.headers.get("Content-Type", "").lower().startswith("application/json")
+    ):
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    if not isinstance(body, dict):
+        return False
+    if body.get("status") == "unauthorized":
+        return True
+    errors = body.get("errors", [])
+    return isinstance(errors, list) and any(
+        isinstance(error, dict)
+        and error.get("message", "").lower()
+        in {"unauthorized", "user not authorized to perform that action"}
+        for error in errors
+        if isinstance(error, dict) and isinstance(error.get("message", ""), str)
+    )
 
 
 class CanvasClient:
@@ -77,6 +105,7 @@ class CanvasClient:
         assignments: list[Assignment] = []
         missing: set[str] = set()
         ignored: dict[str, str] = {}
+        unavailable: set[str] = set()
         for course in courses:
             raw_tasks = self._pages(
                 f"courses/{course.id}/assignments",
@@ -129,6 +158,11 @@ class CanvasClient:
                 )
                 if response.status_code == 404:
                     missing.add(key)
+                elif visibility_denied(response):
+                    # The complete list succeeded, but this previously known task
+                    # is no longer visible to this student. Keep its history and
+                    # continue the other tasks instead of failing the entire account.
+                    unavailable.add(key)
                 elif response.status_code == 200:
                     try:
                         raw = response.json()
@@ -147,4 +181,4 @@ class CanvasClient:
                         raise APIError("Canvas") from None
                 else:
                     raise APIError("Canvas", response.status_code)
-        return Snapshot(courses, assignments, missing, ignored)
+        return Snapshot(courses, assignments, missing, ignored, unavailable)
