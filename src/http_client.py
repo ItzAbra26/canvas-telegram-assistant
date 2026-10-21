@@ -13,6 +13,15 @@ class HTTPClient:
         self.service = service
         self.session = session or requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {token}"})
+        if service == "Canvas":
+            # Canvas requires an identifiable integration on automated/API traffic.
+            # Use the same headers as the working webhook, including pagination.
+            self.session.headers.update(
+                {
+                    "Accept": "application/json",
+                    "User-Agent": "CanvasTelegramAssistant/1.0 (+https://github.com/ItzAbra26/canvas-telegram-assistant)",
+                }
+            )
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         attempts = 3 if method == "GET" else 1

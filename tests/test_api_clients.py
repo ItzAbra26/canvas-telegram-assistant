@@ -43,7 +43,25 @@ def test_canvas_full_pagination_and_auth(raw_task):
         call.request.headers["Authorization"] == "Bearer SECRET_TEST_TOKEN"
         for call in responses.calls
     )
+    assert all(call.request.headers["Accept"] == "application/json" for call in responses.calls)
+    assert all(
+        call.request.headers["User-Agent"].startswith("CanvasTelegramAssistant/1.0 ")
+        for call in responses.calls
+    )
     assert "override_assignment_dates=true" in responses.calls[2].request.url
+
+
+@responses.activate
+def test_canvas_profile_identifies_the_integration_for_server_access_filters():
+    def require_headers(request):
+        if request.headers.get("Accept") != "application/json" or not request.headers.get(
+            "User-Agent", ""
+        ).startswith("CanvasTelegramAssistant/"):
+            return 403, {"Content-Type": "text/html"}, "Forbidden"
+        return 200, {}, json.dumps({"id": 42})
+
+    responses.add_callback(responses.GET, BASE + "/users/self/profile", callback=require_headers)
+    assert CanvasClient("https://canvas.example.edu", "test").profile() == 42
 
 
 @responses.activate
