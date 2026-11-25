@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" width="160" alt="Logo de Canvas Telegram Assistant, el bot de clase" /></p>
+
 <p align="center"><img src="assets/banner.svg" width="100%" alt="Canvas Telegram Assistant: tareas, avisos y entregas desde Telegram" /></p>
 
 <p align="center">
